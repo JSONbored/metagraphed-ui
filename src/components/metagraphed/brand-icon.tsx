@@ -4,6 +4,7 @@ import { useTheme, type ResolvedTheme } from "@/lib/theme";
 import {
   resolveBrandOverride,
   buildProxyIconUrl,
+  normalizePublicProxyHost,
   pickIconSource,
   type BrandOverrideLookup,
   type IconSource,
@@ -30,7 +31,8 @@ function extractHost(input?: string | null): string | null {
   if (!raw) return null;
   try {
     const u = new URL(raw.includes("://") ? raw : `https://${raw}`);
-    return u.hostname.replace(/^www\./, "") || null;
+    if (u.protocol !== "http:" && u.protocol !== "https:") return null;
+    return normalizePublicProxyHost(u.hostname);
   } catch {
     return null;
   }

@@ -17,6 +17,8 @@
  *
  *    GET {VITE_ICON_PROXY_URL}?host={domain}&size={px}&theme={light|dark}
  *
+ *    - Frontend only sends validated public http/https domains. Backend must
+ *      independently reject unsafe DNS results, redirects, and abusive rates.
  *    - Returns 200 with image/png or image/svg+xml; payload MUST be square
  *      and have width/height >= `size` (we reject anything smaller).
  *    - Returns 404 when no usable source can be resolved.
@@ -46,14 +48,70 @@ export interface BrandOverrideLookup {
 export const ICON_PROXY_URL: string | null =
   (import.meta.env.VITE_ICON_PROXY_URL as string | undefined)?.trim() || null;
 
+const BLOCKED_PROXY_TLDS = new Set(["localhost", "local", "internal"]);
+
+function isIpLiteral(host: string): boolean {
+  if (host.startsWith("[") && host.endsWith("]")) return true;
+  if (host.includes(":")) return true;
+
+  const parts = host.split(".");
+  if (parts.length !== 4 || parts.some((part) => !/^\d+$/.test(part))) {
+    return false;
+  }
+
+  return parts.every((part) => {
+    const n = Number(part);
+    return Number.isInteger(n) && n >= 0 && n <= 255;
+  });
+}
+
+/**
+ * Normalise and validate hostnames before forwarding them to the icon proxy.
+ * The frontend only sends public-looking DNS names; the proxy service must
+ * still independently enforce DNS resolution checks, private-IP filtering,
+ * redirects, and rate limits before fetching remote icons.
+ */
+export function normalizePublicProxyHost(
+  host: string | null | undefined,
+): string | null {
+  const normalized = String(host ?? "")
+    .trim()
+    .toLowerCase()
+    .replace(/^www\./, "")
+    .replace(/\.$/, "");
+
+  if (!normalized || normalized.length > 253) return null;
+  if (isIpLiteral(normalized)) return null;
+
+  const labels = normalized.split(".");
+  if (labels.length < 2) return null;
+
+  const tld = labels[labels.length - 1];
+  if (!tld || BLOCKED_PROXY_TLDS.has(tld)) return null;
+
+  const validLabels = labels.every(
+    (label) =>
+      label.length > 0 &&
+      label.length <= 63 &&
+      /^[a-z0-9-]+$/.test(label) &&
+      !label.startsWith("-") &&
+      !label.endsWith("-"),
+  );
+
+  return validLabels ? normalized : null;
+}
+
 export function buildProxyIconUrl(
   host: string,
   size: number,
   theme: ResolvedTheme = "light",
 ): string | null {
   if (!ICON_PROXY_URL) return null;
+  const safeHost = normalizePublicProxyHost(host);
+  if (!safeHost) return null;
+
   const u = new URL(ICON_PROXY_URL);
-  u.searchParams.set("host", host);
+  u.searchParams.set("host", safeHost);
   u.searchParams.set("size", String(size));
   u.searchParams.set("theme", theme);
   return u.toString();
