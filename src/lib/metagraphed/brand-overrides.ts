@@ -8,9 +8,7 @@
  *   2. Curated frontend overrides defined below.
  *   3. Icon proxy at `VITE_ICON_PROXY_URL` (when configured). See contract.
  *   4. GitHub org avatar derived from a `repo` URL.
- *   5. DuckDuckGo icons service.
- *   6. Google S2 favicons at sz=128.
- *   7. Monogram tile.
+ *   5. Monogram tile.
  *
  * ─────────────────────────────────────────────────────────────────────────────
  *  ICON PROXY CONTRACT (backend owns the implementation, lives outside this repo)

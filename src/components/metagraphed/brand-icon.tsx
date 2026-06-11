@@ -48,16 +48,21 @@ function githubOrgFromUrl(input?: string | null): string | null {
   }
 }
 
-function duckDuckGoUrl(host: string): string {
-  return `https://icons.duckduckgo.com/ip3/${encodeURIComponent(host)}.ico`;
-}
-
-function googleS2Url(host: string, size = 128): string {
-  return `https://www.google.com/s2/favicons?sz=${size}&domain=${encodeURIComponent(host)}`;
-}
-
 function githubAvatarUrl(org: string, size = 192): string {
   return `https://github.com/${encodeURIComponent(org)}.png?size=${size}`;
+}
+
+function isSafeImageUrl(input: string): boolean {
+  try {
+    const url = new URL(
+      input,
+      typeof window === "undefined" ? "https://metagraph.local" : window.location.origin,
+    );
+    if (url.protocol === "https:") return true;
+    return typeof window !== "undefined" && url.origin === window.location.origin;
+  } catch {
+    return false;
+  }
 }
 
 interface ChainInputs {
@@ -80,6 +85,7 @@ function buildCandidateChain({
   const out: string[] = [];
   const push = (u: string | null | undefined) => {
     if (!u) return;
+    if (!isSafeImageUrl(u)) return;
     if (failedUrls.has(u)) return;
     if (!out.includes(u)) out.push(u);
   };
@@ -93,10 +99,6 @@ function buildCandidateChain({
   const repoOrg = githubOrgFromUrl(repoUrl);
   if (repoOrg) push(githubAvatarUrl(repoOrg, 192));
 
-  if (host) {
-    push(duckDuckGoUrl(host));
-    push(googleS2Url(host, 128));
-  }
   return out;
 }
 
