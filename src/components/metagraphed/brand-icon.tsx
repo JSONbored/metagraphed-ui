@@ -60,6 +60,75 @@ function githubAvatarUrl(org: string, size = 192): string {
   return `https://github.com/${encodeURIComponent(org)}.png?size=${size}`;
 }
 
+function isPrivateIpv4Address(hostname: string): boolean {
+  const parts = hostname.split(".");
+  if (parts.length !== 4) return false;
+  const octets = parts.map((part) => {
+    if (!/^\d{1,3}$/.test(part)) return NaN;
+    const value = Number(part);
+    return value >= 0 && value <= 255 ? value : NaN;
+  });
+  if (octets.some((value) => Number.isNaN(value))) return false;
+
+  const [a, b] = octets as [number, number, number, number];
+  return (
+    a === 0 ||
+    a === 10 ||
+    a === 127 ||
+    (a === 100 && b >= 64 && b <= 127) ||
+    (a === 169 && b === 254) ||
+    (a === 172 && b >= 16 && b <= 31) ||
+    (a === 192 && (b === 0 || b === 168)) ||
+    (a === 198 && (b === 18 || b === 19 || (b === 51 && octets[2] === 100))) ||
+    (a === 203 && b === 0 && octets[2] === 113) ||
+    a >= 224
+  );
+}
+
+function isPrivateIpv6Address(hostname: string): boolean {
+  const host = hostname.replace(/^\[|\]$/g, "").toLowerCase();
+  if (!host.includes(":")) return false;
+  if (host === "::" || host === "::1") return true;
+  if (host.startsWith("fc") || host.startsWith("fd")) return true;
+  if (
+    host.startsWith("fe8") ||
+    host.startsWith("fe9") ||
+    host.startsWith("fea") ||
+    host.startsWith("feb")
+  )
+    return true;
+  if (host.startsWith("ff")) return true;
+
+  const mappedIpv4 = host.match(/(?:::ffff:)?(\d{1,3}(?:\.\d{1,3}){3})$/);
+  return mappedIpv4 ? isPrivateIpv4Address(mappedIpv4[1]!) : false;
+}
+
+function isSafeDirectIconUrl(input: string): boolean {
+  try {
+    const url = new URL(input);
+    if (url.protocol !== "https:" && url.protocol !== "http:") return false;
+
+    const hostname = url.hostname.toLowerCase();
+    if (!hostname) return false;
+    if (hostname === "localhost" || hostname.endsWith(".localhost")) return false;
+    if (hostname.endsWith(".local")) return false;
+    if (isPrivateIpv4Address(hostname) || isPrivateIpv6Address(hostname)) return false;
+
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+function safeDirectIconSource(
+  src: IconSource | null | undefined,
+  theme: ResolvedTheme,
+): string | null {
+  const picked = pickIconSource(src, theme);
+  if (!picked) return null;
+  return isSafeDirectIconUrl(picked) ? picked : null;
+}
+
 interface ChainInputs {
   url?: string | null;
   iconUrl?: IconSource | null;
@@ -84,7 +153,7 @@ function buildCandidateChain({
     if (!out.includes(u)) out.push(u);
   };
 
-  push(pickIconSource(iconUrl, theme));
+  push(safeDirectIconSource(iconUrl, theme));
   if (lookup) push(resolveBrandOverride(lookup, theme));
 
   const host = extractHost(url);
@@ -125,8 +194,7 @@ export function prefetchBrandIcon(
   });
   const first = chain[0];
   if (!first) return;
-  if (prefetched.has(first) || failedUrls.has(first) || loadedUrls.has(first))
-    return;
+  if (prefetched.has(first) || failedUrls.has(first) || loadedUrls.has(first)) return;
   prefetched.add(first);
   try {
     const img = new Image();
