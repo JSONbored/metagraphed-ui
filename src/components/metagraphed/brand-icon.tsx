@@ -24,6 +24,40 @@ const winnerByHost = new Map<string, string>();
 /** Cached "is this logo dark-on-light?" decision per source URL. */
 const isDarkLogo = new Map<string, boolean>();
 
+const TRUSTED_ICON_HOSTS = new Set([
+  "github.com",
+  "avatars.githubusercontent.com",
+  "raw.githubusercontent.com",
+  "user-images.githubusercontent.com",
+]);
+
+function isTrustedIconHost(hostname: string): boolean {
+  const host = hostname.toLowerCase();
+  return TRUSTED_ICON_HOSTS.has(host) || host.endsWith(".githubusercontent.com");
+}
+
+/**
+ * Registry-provided icon URLs are untrusted input. Only load them when they
+ * point at known public image hosts; otherwise fall back to curated/proxied
+ * sources so a poisoned record cannot make browsers request arbitrary URLs.
+ */
+function sanitizeRegistryIconUrl(input?: string | null): string | null {
+  if (!input) return null;
+  const raw = String(input).trim();
+  if (!raw) return null;
+
+  try {
+    const u = new URL(raw);
+    if (u.protocol !== "https:") return null;
+    if (!isTrustedIconHost(u.hostname)) return null;
+    u.username = "";
+    u.password = "";
+    return u.toString();
+  } catch {
+    return null;
+  }
+}
+
 function extractHost(input?: string | null): string | null {
   if (!input) return null;
   const raw = String(input).trim();
@@ -84,7 +118,7 @@ function buildCandidateChain({
     if (!out.includes(u)) out.push(u);
   };
 
-  push(pickIconSource(iconUrl, theme));
+  push(sanitizeRegistryIconUrl(pickIconSource(iconUrl, theme)));
   if (lookup) push(resolveBrandOverride(lookup, theme));
 
   const host = extractHost(url);
@@ -125,8 +159,7 @@ export function prefetchBrandIcon(
   });
   const first = chain[0];
   if (!first) return;
-  if (prefetched.has(first) || failedUrls.has(first) || loadedUrls.has(first))
-    return;
+  if (prefetched.has(first) || failedUrls.has(first) || loadedUrls.has(first)) return;
   prefetched.add(first);
   try {
     const img = new Image();
