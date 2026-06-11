@@ -3,8 +3,8 @@
  *
  * Priority chain used by `<BrandIcon>` (top wins, falls through on miss/error):
  *
- *   1. `iconUrl` from API (per-entry, registry-controlled). Either a string or
- *      `{ light, dark? }`.
+ *   1. Safe absolute `iconUrl` from API (per-entry, registry-controlled).
+ *      Either a string or `{ light, dark? }`.
  *   2. Curated frontend overrides defined below.
  *   3. Icon proxy at `VITE_ICON_PROXY_URL` (when configured). See contract.
  *   4. GitHub org avatar derived from a `repo` URL.

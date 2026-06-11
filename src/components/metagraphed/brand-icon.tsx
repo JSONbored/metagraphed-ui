@@ -24,6 +24,71 @@ const winnerByHost = new Map<string, string>();
 /** Cached "is this logo dark-on-light?" decision per source URL. */
 const isDarkLogo = new Map<string, boolean>();
 
+const MAX_DIRECT_ICON_URL_LENGTH = 2048;
+
+function isPrivateIpv4(hostname: string): boolean {
+  const parts = hostname.split(".");
+  if (parts.length !== 4) return false;
+  const nums = parts.map((part) => {
+    if (!/^\d{1,3}$/.test(part)) return Number.NaN;
+    return Number(part);
+  });
+  if (nums.some((n) => !Number.isInteger(n) || n < 0 || n > 255)) return false;
+
+  const [a, b] = nums as [number, number, number, number];
+  return (
+    a === 0 ||
+    a === 10 ||
+    a === 127 ||
+    (a === 100 && b >= 64 && b <= 127) ||
+    (a === 169 && b === 254) ||
+    (a === 172 && b >= 16 && b <= 31) ||
+    (a === 192 && b === 168) ||
+    (a === 192 && b === 0) ||
+    (a === 198 && (b === 18 || b === 19)) ||
+    a >= 224
+  );
+}
+
+function isPrivateIpv6(hostname: string): boolean {
+  const host = hostname.replace(/^\[|\]$/g, "").toLowerCase();
+  if (!host.includes(":")) return false;
+  if (host === "::" || host === "::1") return true;
+  if (host.startsWith("fe80:") || host.startsWith("fc") || host.startsWith("fd")) return true;
+  if (/^fe[89ab]:/.test(host)) return true;
+  if (host.startsWith("2001:db8:")) return true;
+
+  const mapped = host.match(/::ffff:(\d{1,3}(?:\.\d{1,3}){3})$/);
+  return mapped ? isPrivateIpv4(mapped[1]!) : false;
+}
+
+function isBlockedIconHostname(hostname: string): boolean {
+  const host = hostname.toLowerCase().replace(/\.$/, "");
+  return (
+    host === "localhost" ||
+    host.endsWith(".localhost") ||
+    host.endsWith(".local") ||
+    isPrivateIpv4(host) ||
+    isPrivateIpv6(host)
+  );
+}
+
+function safeDirectIconUrl(input: string | null): string | null {
+  if (!input) return null;
+  const raw = input.trim();
+  if (!raw || raw.length > MAX_DIRECT_ICON_URL_LENGTH) return null;
+
+  try {
+    const u = new URL(raw);
+    if (u.protocol !== "https:" && u.protocol !== "http:") return null;
+    if (u.username || u.password) return null;
+    if (!u.hostname || isBlockedIconHostname(u.hostname)) return null;
+    return u.toString();
+  } catch {
+    return null;
+  }
+}
+
 function extractHost(input?: string | null): string | null {
   if (!input) return null;
   const raw = String(input).trim();
@@ -84,7 +149,7 @@ function buildCandidateChain({
     if (!out.includes(u)) out.push(u);
   };
 
-  push(pickIconSource(iconUrl, theme));
+  push(safeDirectIconUrl(pickIconSource(iconUrl, theme)));
   if (lookup) push(resolveBrandOverride(lookup, theme));
 
   const host = extractHost(url);
@@ -125,8 +190,7 @@ export function prefetchBrandIcon(
   });
   const first = chain[0];
   if (!first) return;
-  if (prefetched.has(first) || failedUrls.has(first) || loadedUrls.has(first))
-    return;
+  if (prefetched.has(first) || failedUrls.has(first) || loadedUrls.has(first)) return;
   prefetched.add(first);
   try {
     const img = new Image();
