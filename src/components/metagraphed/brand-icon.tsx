@@ -141,7 +141,7 @@ export function prefetchBrandIcon(
 }
 
 function monogramFor(name?: string | null, fallback?: string | number | null): string {
-  const source = (name ?? "").trim();
+  const source = typeof name === "string" ? name.trim() : "";
   if (source) {
     const parts = source.split(/\s+/).filter(Boolean);
     if (parts.length >= 2) return (parts[0]![0]! + parts[1]![0]!).toUpperCase();
