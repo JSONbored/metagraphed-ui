@@ -67,6 +67,7 @@ interface ChainInputs {
   lookup?: BrandOverrideLookup;
   theme: ResolvedTheme;
   size: number;
+  includeIconUrl?: boolean;
 }
 
 function buildCandidateChain({
@@ -76,6 +77,7 @@ function buildCandidateChain({
   lookup,
   theme,
   size,
+  includeIconUrl = true,
 }: ChainInputs): string[] {
   const out: string[] = [];
   const push = (u: string | null | undefined) => {
@@ -84,7 +86,7 @@ function buildCandidateChain({
     if (!out.includes(u)) out.push(u);
   };
 
-  push(pickIconSource(iconUrl, theme));
+  if (includeIconUrl) push(pickIconSource(iconUrl, theme));
   if (lookup) push(resolveBrandOverride(lookup, theme));
 
   const host = extractHost(url);
@@ -122,11 +124,14 @@ export function prefetchBrandIcon(
     lookup: extra?.lookup,
     theme: extra?.theme ?? "light",
     size,
+    // Raw registry icon URLs can point at arbitrary hosts. Do not eagerly
+    // request them for every row; leave them to the rendered <BrandIcon>
+    // fallback chain where only visible icons are loaded.
+    includeIconUrl: false,
   });
   const first = chain[0];
   if (!first) return;
-  if (prefetched.has(first) || failedUrls.has(first) || loadedUrls.has(first))
-    return;
+  if (prefetched.has(first) || failedUrls.has(first) || loadedUrls.has(first)) return;
   prefetched.add(first);
   try {
     const img = new Image();
