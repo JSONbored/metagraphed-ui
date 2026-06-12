@@ -4,8 +4,8 @@ The web frontend for **[Metagraphed](https://github.com/JSONbored/metagraphed)**
 Bittensor subnet integration registry. It answers, for every subnet: _what does it
 expose (APIs, docs, schemas), is it healthy, and how do I call it?_
 
-Live at **[metagraph.sh](https://metagraph.sh)**, served same-origin with the
-`api.metagraph.sh` backend (no CORS) as a Cloudflare Worker.
+Live at **[metagraph.sh](https://metagraph.sh)** as a Cloudflare Worker,
+consuming the metagraphed backend API on the `api.metagraph.sh` subdomain.
 
 ## Stack
 
@@ -14,9 +14,9 @@ Live at **[metagraph.sh](https://metagraph.sh)**, served same-origin with the
 - **[Tailwind CSS](https://tailwindcss.com)** + **[Radix UI](https://www.radix-ui.com)** / shadcn primitives
 - Deploys as a **Cloudflare Worker** — see [DEPLOY.md](./DEPLOY.md)
 
-All data comes from the Metagraphed API (`https://metagraph.sh`, overridable via
-`VITE_METAGRAPH_API_BASE`). This repo holds **no** subnet data — it renders what the
-backend serves.
+All data comes from the Metagraphed API (`https://api.metagraph.sh`, overridable
+via `VITE_METAGRAPH_API_BASE`). This repo holds **no** subnet data — it renders
+what the backend serves.
 
 ## Local development
 

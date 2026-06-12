@@ -1,8 +1,8 @@
 # Deploying metagraphed-ui to Cloudflare (Workers Builds)
 
 This frontend deploys as a **Cloudflare Worker** (TanStack Start SSR via Nitro's
-`cloudflare-module` preset) alongside the `metagraphed` backend, so the UI and
-API share the `metagraph.sh` origin (same-origin, no CORS).
+`cloudflare-module` preset). It serves the `metagraph.sh` apex and consumes the
+`metagraphed` backend API on the separate `api.metagraph.sh` subdomain.
 
 **Lovable stays in control of the app code.** Nothing here touches
 `vite.config.ts`, `src/`, or any Vite plugin — the Cloudflare build is enabled
@@ -22,11 +22,11 @@ Create → Connect to Git), then configure:
 
 ### Build environment variables
 
-| Var                       | Value                  | Why                                                                                                                                                        |
-| ------------------------- | ---------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `LOVABLE_SANDBOX`         | `1`                    | Force-enables Nitro's `cloudflare-module` build outside Lovable's own environment (the preset otherwise skips Nitro and emits a static-only client build). |
-| `NITRO_PRESET`            | `cloudflare-module`    | Explicit Cloudflare Worker target (this is also the default).                                                                                              |
-| `VITE_METAGRAPH_API_BASE` | `https://metagraph.sh` | Backend API base (also the in-code default).                                                                                                               |
+| Var                       | Value                      | Why                                                                                                                                                        |
+| ------------------------- | -------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `LOVABLE_SANDBOX`         | `1`                        | Force-enables Nitro's `cloudflare-module` build outside Lovable's own environment (the preset otherwise skips Nitro and emits a static-only client build). |
+| `NITRO_PRESET`            | `cloudflare-module`        | Explicit Cloudflare Worker target (this is also the default).                                                                                              |
+| `VITE_METAGRAPH_API_BASE` | `https://api.metagraph.sh` | Backend API base. Optional — this is also the in-code default (`src/lib/metagraphed/config.ts`).                                                           |
 
 Notes:
 
