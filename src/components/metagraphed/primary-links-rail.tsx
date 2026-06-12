@@ -5,17 +5,23 @@ import {
   Globe,
   LayoutDashboard,
 } from "lucide-react";
+import { safeExternalUrl } from "@/components/metagraphed/external-link";
 
-type LinkSpec = {
+type RawLinkSpec = {
   label: string;
   href?: string;
   icon: typeof Globe;
 };
 
+type LinkSpec = RawLinkSpec & {
+  href: string;
+  safeHref?: string;
+};
+
 function host(url?: string): string {
   if (!url) return "";
   try {
-    return new URL(url).hostname.replace(/^www\./, "");
+    return new URL(url).hostname.replace(/^www\./, "") || url;
   } catch {
     return url;
   }
@@ -40,13 +46,19 @@ export function PrimaryLinksRail({
   dashboard,
   extras,
 }: PrimaryLinksRailProps) {
-  const items: LinkSpec[] = [
+  const items: LinkSpec[] = ([
     { label: "Website", href: website, icon: Globe },
     { label: "Docs", href: docs, icon: BookOpen },
     { label: "Repository", href: repo, icon: Github },
     { label: "Dashboard", href: dashboard, icon: LayoutDashboard },
-    ...(extras ?? []).map((e) => ({ label: e.label, href: e.href, icon: e.icon ?? Globe })),
-  ].filter((i) => !!i.href) as LinkSpec[];
+    ...(extras ?? []).map((e) => ({
+      label: e.label,
+      href: e.href,
+      icon: e.icon ?? Globe,
+    })),
+  ] satisfies RawLinkSpec[])
+    .filter((i): i is RawLinkSpec & { href: string } => !!i.href)
+    .map((i) => ({ ...i, safeHref: safeExternalUrl(i.href) }));
 
   if (items.length === 0) return null;
 
@@ -54,20 +66,42 @@ export function PrimaryLinksRail({
     <div className="flex flex-wrap items-center gap-2">
       {items.map((it) => {
         const Icon = it.icon;
-        return (
-          <a
-            key={it.label + it.href}
-            href={it.href}
-            target="_blank"
-            rel="noopener noreferrer"
-            className="group inline-flex items-center gap-2 rounded border border-border bg-card px-2.5 py-1.5 text-xs font-medium text-ink-strong hover:border-ink/30 transition-colors"
-          >
+        const content = (
+          <>
             <Icon className="size-3.5 text-ink-muted" />
             <span>{it.label}</span>
             <span className="hidden sm:inline font-mono text-[10px] text-ink-muted">
-              {host(it.href)}
+              {host(it.safeHref ?? it.href)}
             </span>
-            <ExternalLinkIcon className="size-3 text-ink-muted opacity-60 group-hover:opacity-100" />
+            {it.safeHref ? (
+              <ExternalLinkIcon className="size-3 text-ink-muted opacity-60 group-hover:opacity-100" />
+            ) : null}
+          </>
+        );
+        const className =
+          "group inline-flex items-center gap-2 rounded border border-border bg-card px-2.5 py-1.5 text-xs font-medium text-ink-strong transition-colors";
+
+        if (!it.safeHref) {
+          return (
+            <span
+              key={it.label + it.href}
+              title="Blocked unsafe external URL"
+              className={`${className} cursor-default opacity-80`}
+            >
+              {content}
+            </span>
+          );
+        }
+
+        return (
+          <a
+            key={it.label + it.href}
+            href={it.safeHref}
+            target="_blank"
+            rel="noopener noreferrer"
+            className={`${className} hover:border-ink/30`}
+          >
+            {content}
           </a>
         );
       })}
