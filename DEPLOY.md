@@ -14,21 +14,22 @@ edits are unaffected.
 Connect this GitHub repo to **Workers Builds** (Cloudflare dashboard → Workers →
 Create → Connect to Git), then configure:
 
-| Setting | Value |
-| --- | --- |
-| **Build command** | `npm ci --legacy-peer-deps && npm run build` |
-| **Deploy command** | `npx --yes wrangler@4.90.1 deploy` |
-| **Worker name** | `metagraph-finder` (or accept the auto name `jsonbored-metagraph-finder`) |
+| Setting            | Value                                                                     |
+| ------------------ | ------------------------------------------------------------------------- |
+| **Build command**  | `npm ci --legacy-peer-deps && npm run build`                              |
+| **Deploy command** | `npx --yes wrangler@4.90.1 deploy`                                        |
+| **Worker name**    | `metagraph-finder` (or accept the auto name `jsonbored-metagraph-finder`) |
 
 ### Build environment variables
 
-| Var | Value | Why |
-| --- | --- | --- |
-| `LOVABLE_SANDBOX` | `1` | Force-enables Nitro's `cloudflare-module` build outside Lovable's own environment (the preset otherwise skips Nitro and emits a static-only client build). |
-| `NITRO_PRESET` | `cloudflare-module` | Explicit Cloudflare Worker target (this is also the default). |
-| `VITE_METAGRAPH_API_BASE` | `https://metagraph.sh` | Backend API base (also the in-code default). |
+| Var                       | Value                  | Why                                                                                                                                                        |
+| ------------------------- | ---------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `LOVABLE_SANDBOX`         | `1`                    | Force-enables Nitro's `cloudflare-module` build outside Lovable's own environment (the preset otherwise skips Nitro and emits a static-only client build). |
+| `NITRO_PRESET`            | `cloudflare-module`    | Explicit Cloudflare Worker target (this is also the default).                                                                                              |
+| `VITE_METAGRAPH_API_BASE` | `https://metagraph.sh` | Backend API base (also the in-code default).                                                                                                               |
 
 Notes:
+
 - `npm ci --legacy-peer-deps` uses the committed `package-lock.json` instead of
   re-resolving the caret ranges in `package.json` during production builds. Keep
   the lockfile updated intentionally with reviewed dependency changes.
