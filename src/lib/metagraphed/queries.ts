@@ -1,5 +1,6 @@
 import { queryOptions, infiniteQueryOptions } from "@tanstack/react-query";
 import { apiFetch, type ApiResult, type QueryParams } from "./client";
+import { safeExternalUrl } from "@/lib/metagraphed/url";
 import type {
   AdapterSnapshot,
   Candidate,
@@ -254,6 +255,15 @@ function pickStr(...vals: unknown[]): string | undefined {
   return undefined;
 }
 
+function pickSafeExternalUrl(...vals: unknown[]): string | undefined {
+  for (const v of vals) {
+    if (typeof v !== "string" || !v.trim()) continue;
+    const safeUrl = safeExternalUrl(v);
+    if (safeUrl) return safeUrl;
+  }
+  return undefined;
+}
+
 function normalizeSubnetProfile(raw: unknown, netuid: number): SubnetProfile {
   const root = (raw && typeof raw === "object" ? (raw as Record<string, unknown>) : {}) as Record<
     string,
@@ -274,10 +284,10 @@ function normalizeSubnetProfile(raw: unknown, netuid: number): SubnetProfile {
   const gaps = (subnet.gaps as Record<string, unknown> | undefined) ??
     (root.gaps as Record<string, unknown> | undefined) ?? {};
 
-  const website = pickStr(links.website_url, links.website, subnet.website_url);
-  const docs = pickStr(links.docs_url, links.docs, subnet.docs_url);
-  const repo = pickStr(links.source_repo, links.repo, subnet.source_repo);
-  const dashboard = pickStr(links.dashboard_url, links.dashboard, subnet.dashboard_url);
+  const website = pickSafeExternalUrl(links.website_url, links.website, subnet.website_url);
+  const docs = pickSafeExternalUrl(links.docs_url, links.docs, subnet.docs_url);
+  const repo = pickSafeExternalUrl(links.source_repo, links.repo, subnet.source_repo);
+  const dashboard = pickSafeExternalUrl(links.dashboard_url, links.dashboard, subnet.dashboard_url);
 
   const status = statusToHealth((subnet.status as string) ?? (profile.status as string));
 

@@ -5,20 +5,18 @@ import {
   Globe,
   LayoutDashboard,
 } from "lucide-react";
+import { safeExternalUrl } from "@/lib/metagraphed/url";
 
 type LinkSpec = {
   label: string;
-  href?: string;
+  href: string;
   icon: typeof Globe;
 };
 
-function host(url?: string): string {
-  if (!url) return "";
-  try {
-    return new URL(url).hostname.replace(/^www\./, "");
-  } catch {
-    return url;
-  }
+type RawLinkSpec = Omit<LinkSpec, "href"> & { href?: string };
+
+function host(url: string): string {
+  return new URL(url).hostname.replace(/^www\./, "");
 }
 
 export interface PrimaryLinksRailProps {
@@ -40,13 +38,17 @@ export function PrimaryLinksRail({
   dashboard,
   extras,
 }: PrimaryLinksRailProps) {
-  const items: LinkSpec[] = [
+  const items: LinkSpec[] = ([
     { label: "Website", href: website, icon: Globe },
     { label: "Docs", href: docs, icon: BookOpen },
     { label: "Repository", href: repo, icon: Github },
     { label: "Dashboard", href: dashboard, icon: LayoutDashboard },
     ...(extras ?? []).map((e) => ({ label: e.label, href: e.href, icon: e.icon ?? Globe })),
-  ].filter((i) => !!i.href) as LinkSpec[];
+  ] satisfies RawLinkSpec[]).flatMap((item) => {
+    if (!item.href) return [];
+    const href = safeExternalUrl(item.href);
+    return href ? [{ ...item, href }] : [];
+  });
 
   if (items.length === 0) return null;
 
