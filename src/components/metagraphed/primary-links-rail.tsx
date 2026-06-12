@@ -5,6 +5,7 @@ import {
   Globe,
   LayoutDashboard,
 } from "lucide-react";
+import { safeExternalUrl } from "@/components/metagraphed/external-link";
 
 type LinkSpec = {
   label: string;
@@ -54,20 +55,43 @@ export function PrimaryLinksRail({
     <div className="flex flex-wrap items-center gap-2">
       {items.map((it) => {
         const Icon = it.icon;
-        return (
-          <a
-            key={it.label + it.href}
-            href={it.href}
-            target="_blank"
-            rel="noopener noreferrer"
-            className="group inline-flex items-center gap-2 rounded border border-border bg-card px-2.5 py-1.5 text-xs font-medium text-ink-strong hover:border-ink/30 transition-colors"
-          >
+        const safeHref = safeExternalUrl(it.href ?? "");
+        const content = (
+          <>
             <Icon className="size-3.5 text-ink-muted" />
             <span>{it.label}</span>
             <span className="hidden sm:inline font-mono text-[10px] text-ink-muted">
               {host(it.href)}
             </span>
-            <ExternalLinkIcon className="size-3 text-ink-muted opacity-60 group-hover:opacity-100" />
+            {safeHref ? (
+              <ExternalLinkIcon className="size-3 text-ink-muted opacity-60 group-hover:opacity-100" />
+            ) : null}
+          </>
+        );
+        const className =
+          "group inline-flex items-center gap-2 rounded border border-border bg-card px-2.5 py-1.5 text-xs font-medium text-ink-strong transition-colors";
+
+        if (!safeHref) {
+          return (
+            <span
+              key={it.label + it.href}
+              className={className}
+              title="Blocked unsafe external URL"
+            >
+              {content}
+            </span>
+          );
+        }
+
+        return (
+          <a
+            key={it.label + it.href}
+            href={safeHref}
+            target="_blank"
+            rel="noopener noreferrer"
+            className={`${className} hover:border-ink/30`}
+          >
+            {content}
           </a>
         );
       })}
