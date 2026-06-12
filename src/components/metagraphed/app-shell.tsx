@@ -19,7 +19,6 @@ import {
   Workflow,
   X,
 } from "lucide-react";
-import { API_BASE } from "@/lib/metagraphed/config";
 import { useApiBase } from "@/hooks/use-api-base";
 import { NetworkSwitcher } from "./network-switcher";
 import { CopyableCode } from "./copyable-code";
@@ -552,6 +551,7 @@ function buildCrumbs(pathname: string) {
 
 export function AppShell({ children }: { children: ReactNode }) {
   const pathname = useRouterState({ select: (s) => s.location.pathname });
+  const { base } = useApiBase();
   const [mobileOpen, setMobileOpen] = useState(false);
   const crumbs = useMemo(() => buildCrumbs(pathname), [pathname]);
 
@@ -629,8 +629,8 @@ export function AppShell({ children }: { children: ReactNode }) {
           </div>
           <div className="font-mono">
             data:{" "}
-            <a href={`${API_BASE}/api/v1`} className="underline" target="_blank" rel="noreferrer">
-              {API_BASE}/api/v1
+            <a href={`${base}/api/v1`} className="underline" target="_blank" rel="noreferrer">
+              {base}/api/v1
             </a>
           </div>
         </footer>

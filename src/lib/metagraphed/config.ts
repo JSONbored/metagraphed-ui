@@ -8,11 +8,24 @@ const env = (import.meta as ImportMeta & { env?: Record<string, string | undefin
 const STORAGE_KEY = "metagraphed:api-base";
 const EVT = "metagraphed:api-base-changed";
 
-export const DEFAULT_API_BASE = (
-  env?.VITE_METAGRAPH_API_BASE ||
-  env?.VITE_METAGRAPHED_API_BASE ||
-  "https://api.metagraph.sh"
-).replace(/\/$/, "");
+const FALLBACK_API_BASE = "https://api.metagraph.sh";
+
+export function normalizeApiBase(value: string | null | undefined): string | null {
+  const raw = value?.trim();
+  if (!raw) return null;
+
+  try {
+    const url = new URL(raw);
+    if (url.protocol !== "http:" && url.protocol !== "https:") return null;
+    return url.origin;
+  } catch {
+    return null;
+  }
+}
+
+export const DEFAULT_API_BASE =
+  normalizeApiBase(env?.VITE_METAGRAPH_API_BASE || env?.VITE_METAGRAPHED_API_BASE) ??
+  FALLBACK_API_BASE;
 
 export interface ApiNetwork {
   id: string;
@@ -48,7 +61,9 @@ function readStored(): string | null {
   if (typeof window === "undefined") return null;
   try {
     const v = window.localStorage.getItem(STORAGE_KEY);
-    return v ? v.replace(/\/$/, "") : null;
+    const normalized = normalizeApiBase(v);
+    if (v && !normalized) window.localStorage.removeItem(STORAGE_KEY);
+    return normalized;
   } catch {
     return null;
   }
@@ -62,10 +77,13 @@ export function getApiBase(): string {
   return next;
 }
 
-/** Set + persist a new API base. Dispatches an event subscribers can react to. */
+/** Set + persist a valid API base. Dispatches an event subscribers can react to. */
 export function setApiBase(url: string) {
-  const clean = url.trim().replace(/\/$/, "");
-  const next = clean || DEFAULT_API_BASE;
+  const raw = url.trim();
+  const normalized = normalizeApiBase(raw);
+  if (raw && !normalized) return;
+
+  const next = normalized ?? DEFAULT_API_BASE;
   cached = next;
   if (typeof window !== "undefined") {
     try {
