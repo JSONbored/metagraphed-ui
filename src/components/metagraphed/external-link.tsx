@@ -1,5 +1,6 @@
 import { ExternalLink as ExternalIcon, Lock, AlertTriangle } from "lucide-react";
 import { classNames } from "@/lib/metagraphed/format";
+import { safeExternalHref } from "@/lib/metagraphed/external-url";
 
 interface Props {
   href: string;
@@ -10,18 +11,11 @@ interface Props {
 }
 
 export function ExternalLink({ href, children, authRequired, publicSafe = true, className }: Props) {
-  return (
-    <a
-      href={href}
-      target="_blank"
-      rel="noopener noreferrer"
-      className={classNames(
-        "inline-flex items-center gap-1 underline decoration-ink/30 underline-offset-2 hover:decoration-ink text-ink-strong",
-        className,
-      )}
-    >
+  const safeHref = safeExternalHref(href);
+  const content = (
+    <>
       <span className="truncate">{children}</span>
-      <ExternalIcon className="size-3 shrink-0 text-ink-muted" />
+      {safeHref ? <ExternalIcon className="size-3 shrink-0 text-ink-muted" /> : null}
       {authRequired ? (
         <span
           title="Authentication required"
@@ -38,6 +32,28 @@ export function ExternalLink({ href, children, authRequired, publicSafe = true, 
           <AlertTriangle className="size-2.5" /> private
         </span>
       ) : null}
+    </>
+  );
+
+  if (!safeHref) {
+    return (
+      <span className={classNames("inline-flex items-center gap-1 text-ink-strong", className)}>
+        {content}
+      </span>
+    );
+  }
+
+  return (
+    <a
+      href={safeHref}
+      target="_blank"
+      rel="noopener noreferrer"
+      className={classNames(
+        "inline-flex items-center gap-1 underline decoration-ink/30 underline-offset-2 hover:decoration-ink text-ink-strong",
+        className,
+      )}
+    >
+      {content}
     </a>
   );
 }
