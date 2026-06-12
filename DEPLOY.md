@@ -14,11 +14,11 @@ edits are unaffected.
 Connect this GitHub repo to **Workers Builds** (Cloudflare dashboard → Workers →
 Create → Connect to Git), then configure:
 
-| Setting            | Value                                                                     |
-| ------------------ | ------------------------------------------------------------------------- |
-| **Build command**  | `npm ci --legacy-peer-deps && npm run build`                              |
-| **Deploy command** | `npx --yes wrangler@4.90.1 deploy`                                        |
-| **Worker name**    | `metagraphed-ui` (or accept the auto name `jsonbored-metagraphed-ui`)      |
+| Setting            | Value                                                                 |
+| ------------------ | --------------------------------------------------------------------- |
+| **Build command**  | `npm ci --legacy-peer-deps && npm run build`                          |
+| **Deploy command** | `npx --yes wrangler@4.90.1 deploy`                                    |
+| **Worker name**    | `metagraphed-ui` (or accept the auto name `jsonbored-metagraphed-ui`) |
 
 ### Build environment variables
 
@@ -46,17 +46,14 @@ Notes:
   `nitro: true` inside the existing `defineConfig({ ... })` in `vite.config.ts`
   (the documented escape hatch) instead of `LOVABLE_SANDBOX=1`.
 
-## Routing (apex cutover)
+## Routing
 
-Initially the Worker is reachable at `metagraphed-ui.<account>.workers.dev`
-(verify all pages load live data from `https://metagraph.sh`). To serve the UI
-at the bare apex:
+`metagraph.sh` is attached to this Worker as a Cloudflare **Custom Domain**
+(Workers & Pages → `metagraphed-ui` → Domains), so the bare apex serves the UI
+and Cloudflare manages the apex DNS record + TLS certificate automatically. The
+Worker is also always reachable at `metagraphed-ui.<account>.workers.dev`, plus
+per-branch preview URLs at `*-metagraphed-ui.<account>.workers.dev`.
 
-1. Backend (`metagraphed`) switches `wrangler.jsonc` from `custom_domain: true`
-   to zone routes (`metagraph.sh/api/*`, `/rpc/*`, `/metagraph/*`, `/health`).
-2. This Worker takes the catch-all route **`metagraph.sh/*`** (Worker → Triggers
-   → Routes, or `routes` in the deploy). Cloudflare matches more-specific routes
-   first, so `/api/*` etc. hit the backend and everything else renders the UI.
-3. Ensure `metagraph.sh` has a **proxied** DNS record and remove the backend's
-   old custom domain. Do the swap in one short window so the apex is never
-   orphaned.
+The backend (`metagraphed`) is a **separate** Worker on the `api.metagraph.sh`
+subdomain — the UI apex and the API are distinct hostnames, so there is no
+path-based route splitting to configure on this Worker.
