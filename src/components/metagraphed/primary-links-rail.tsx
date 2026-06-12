@@ -5,10 +5,11 @@ import {
   Globe,
   LayoutDashboard,
 } from "lucide-react";
+import { safeExternalUrl } from "./external-link";
 
 type LinkSpec = {
   label: string;
-  href?: string;
+  href: string;
   icon: typeof Globe;
 };
 
@@ -46,7 +47,11 @@ export function PrimaryLinksRail({
     { label: "Repository", href: repo, icon: Github },
     { label: "Dashboard", href: dashboard, icon: LayoutDashboard },
     ...(extras ?? []).map((e) => ({ label: e.label, href: e.href, icon: e.icon ?? Globe })),
-  ].filter((i) => !!i.href) as LinkSpec[];
+  ].flatMap((item) => {
+    if (!item.href) return [];
+    const href = safeExternalUrl(item.href);
+    return href ? [{ ...item, href }] : [];
+  });
 
   if (items.length === 0) return null;
 
