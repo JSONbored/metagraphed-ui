@@ -5,6 +5,7 @@ import {
   Globe,
   LayoutDashboard,
 } from "lucide-react";
+import { safeExternalUrl } from "@/components/metagraphed/external-link";
 
 type LinkSpec = {
   label: string;
@@ -46,7 +47,9 @@ export function PrimaryLinksRail({
     { label: "Repository", href: repo, icon: Github },
     { label: "Dashboard", href: dashboard, icon: LayoutDashboard },
     ...(extras ?? []).map((e) => ({ label: e.label, href: e.href, icon: e.icon ?? Globe })),
-  ].filter((i) => !!i.href) as LinkSpec[];
+  ]
+    .map((i) => ({ ...i, href: i.href ? safeExternalUrl(i.href) : undefined }))
+    .filter((i) => !!i.href) as LinkSpec[];
 
   if (items.length === 0) return null;
 
