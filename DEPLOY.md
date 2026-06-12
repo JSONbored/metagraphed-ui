@@ -1,4 +1,4 @@
-# Deploying metagraph-finder to Cloudflare (Workers Builds)
+# Deploying metagraphed-ui to Cloudflare (Workers Builds)
 
 This frontend deploys as a **Cloudflare Worker** (TanStack Start SSR via Nitro's
 `cloudflare-module` preset) alongside the `metagraphed` backend, so the UI and
@@ -18,7 +18,7 @@ Create → Connect to Git), then configure:
 | ------------------ | ------------------------------------------------------------------------- |
 | **Build command**  | `npm ci --legacy-peer-deps && npm run build`                              |
 | **Deploy command** | `npx --yes wrangler@4.90.1 deploy`                                        |
-| **Worker name**    | `metagraph-finder` (or accept the auto name `jsonbored-metagraph-finder`) |
+| **Worker name**    | `metagraphed-ui` (or accept the auto name `jsonbored-metagraphed-ui`)      |
 
 ### Build environment variables
 
@@ -48,7 +48,7 @@ Notes:
 
 ## Routing (apex cutover)
 
-Initially the Worker is reachable at `metagraph-finder.<account>.workers.dev`
+Initially the Worker is reachable at `metagraphed-ui.<account>.workers.dev`
 (verify all pages load live data from `https://metagraph.sh`). To serve the UI
 at the bare apex:
 

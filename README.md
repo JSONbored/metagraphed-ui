@@ -44,9 +44,9 @@ without writing.
 
 ## Deployment
 
-Deploys to Cloudflare Workers Builds on push. The Worker is named `metagraph-finder`
-(it holds the `metagraph.sh/*` route — do not rename casually). Full setup,
-environment variables, and the build/deploy commands are in [DEPLOY.md](./DEPLOY.md).
+Deploys to Cloudflare Workers Builds on push. The Worker is named `metagraphed-ui`
+(it holds the `metagraph.sh/*` route). Full setup, environment variables, and the
+build/deploy commands are in [DEPLOY.md](./DEPLOY.md).
 
 ## Contributing
 
