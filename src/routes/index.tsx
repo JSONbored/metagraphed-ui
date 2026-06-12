@@ -79,8 +79,9 @@ function OverviewPage() {
   );
 }
 
-
-
+function optionalString(value: unknown): string | undefined {
+  return typeof value === "string" && value.trim() ? value : undefined;
+}
 
 function StatCell({ label, value, hint }: { label: string; value: string; hint?: string }) {
   return (
@@ -304,7 +305,9 @@ function SubnetPreviewTable() {
                       size={20}
                       name={s.name ?? `Subnet ${s.netuid}`}
                       fallback={s.netuid}
-                      url={s.website}
+                      url={s.website ?? optionalString(s.homepage)}
+                      repoUrl={optionalString(s.repo)}
+                      subnetSlug={optionalString(s.slug)}
                       netuid={s.netuid}
                     />
                     <span className="truncate">{s.name ?? `Subnet ${s.netuid}`}</span>
