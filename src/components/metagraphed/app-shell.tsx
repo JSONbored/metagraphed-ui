@@ -256,7 +256,7 @@ function GlobalSearch() {
   }, [q]);
 
   const { data, isFetching } = useQuery({ ...searchQuery(debounced, 16), retry: 0 });
-  const hits = (data?.data ?? []) as SearchHit[];
+  const hits = useMemo(() => (data?.data ?? []) as SearchHit[], [data]);
 
   // Group hits by kind. Order = Subnets, Surfaces, Endpoints, Providers, Other.
   const groups = useMemo(() => {
@@ -609,6 +609,14 @@ export function AppShell({ children }: { children: ReactNode }) {
 
   return (
     <div className="min-h-dvh bg-paper text-ink">
+      {/* Skip link: first focusable element, visible only on keyboard focus. */}
+      <a
+        href="#main-content"
+        className="sr-only focus:not-sr-only focus:absolute focus:left-4 focus:top-4 focus:z-[100] focus:rounded focus:bg-ink-strong focus:px-4 focus:py-2 focus:text-paper"
+      >
+        Skip to main content
+      </a>
+
       {/* Desktop sidebar */}
       <aside className="fixed inset-y-0 left-0 z-30 hidden w-60 border-r border-border bg-paper md:block">
         <SidebarBody />
@@ -672,7 +680,11 @@ export function AppShell({ children }: { children: ReactNode }) {
           </div>
         </header>
 
-        <main key={network.id} className="px-4 md:px-8 py-6 md:py-8 max-w-[1400px] mx-auto">
+        <main
+          id="main-content"
+          key={network.id}
+          className="px-4 md:px-8 py-6 md:py-8 max-w-[1400px] mx-auto"
+        >
           {children}
         </main>
 

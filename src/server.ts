@@ -2,6 +2,7 @@ import "./lib/error-capture";
 
 import { consumeLastCapturedError } from "./lib/error-capture";
 import { renderErrorPage } from "./lib/error-page";
+import { handleOgImage } from "./lib/og-image";
 
 type ServerEntry = {
   fetch: (request: Request, env: unknown, ctx: unknown) => Promise<Response> | Response;
@@ -142,9 +143,11 @@ const DISCOVERY_PROXY_PATHS = new Set([
 // RFC 8288 Link header advertising the API catalog + machine-readable descriptions, added to every
 // HTML response (mirrors the backend's homepage Link header, with absolute API-origin targets).
 const DISCOVERY_LINK_HEADER = [
-  `<${API_ORIGIN}/.well-known/api-catalog>; rel="api-catalog"`,
+  `<${API_ORIGIN}/.well-known/api-catalog>; rel="api-catalog"; type="application/linkset+json"`,
   `<${API_ORIGIN}/metagraph/openapi.json>; rel="service-desc"; type="application/json"`,
   `<${API_ORIGIN}/llms.txt>; rel="service-doc"; type="text/plain"`,
+  `<${API_ORIGIN}/agent.md>; rel="service-doc"; type="text/markdown"`,
+  `<${API_ORIGIN}/health>; rel="status"; type="application/json"`,
   `<${API_ORIGIN}/.well-known/mcp/server-card.json>; rel="describedby"; type="application/json"`,
 ].join(", ");
 
@@ -165,6 +168,7 @@ const SITEMAP_STATIC_PATHS = [
 // else (the request falls through to the SSR app).
 async function handleDiscovery(request: Request): Promise<Response | null> {
   const url = new URL(request.url);
+  if (url.pathname === "/robots.txt") return buildRobots();
   if (url.pathname === "/sitemap.xml") return buildSitemap();
   if (!DISCOVERY_PROXY_PATHS.has(url.pathname)) return null;
   if (request.method !== "GET" && request.method !== "HEAD") {
@@ -176,6 +180,28 @@ async function handleDiscovery(request: Request): Promise<Response | null> {
   const headers = new Headers(upstream.headers);
   headers.set("x-discovery-origin", "api.metagraph.sh");
   return new Response(upstream.body, { status: upstream.status, headers });
+}
+
+// robots.txt for the apex. metagraphed is a public, agent-ready registry, so all
+// crawlers (including AI agents) are welcome — the machine API + discovery
+// surfaces live on api.metagraph.sh (which serves its own robots.txt). Served
+// here by the Worker because Cloudflare Managed robots.txt is disabled for the
+// zone; advertises the human-page sitemap so crawlers can find it.
+function buildRobots(): Response {
+  const body =
+    `# metagraph.sh — public Bittensor subnet integration registry.\n` +
+    `# AI agents welcome; the machine API + discovery live on api.metagraph.sh.\n` +
+    `User-agent: *\n` +
+    `Allow: /\n` +
+    `\n` +
+    `Sitemap: ${SITE_ORIGIN}/sitemap.xml\n`;
+  return new Response(body, {
+    status: 200,
+    headers: {
+      "content-type": "text/plain; charset=utf-8",
+      "cache-control": "public, max-age=3600",
+    },
+  });
 }
 
 // Build the apex sitemap: canonical static pages + one entry per live subnet (by netuid) and per
@@ -330,25 +356,79 @@ function buildJsonLd(pathname: string): string {
   }).replace(/</g, "\\u003c");
 }
 
-// Inject the deferred tracker, a canonical link, and schema.org JSON-LD into
-// <head> of HTML responses (streaming) and advertise the agent-discovery
-// resources via an RFC 8288 Link header. Canonical + JSON-LD are set HERE (not
-// per-route) so they are global, consistent, and regen-proof. Canonical is
-// origin + path with the query stripped, so filter/sort permutations (e.g.
-// /subnets?sort=health&health=down) consolidate to the one indexable URL instead
-// of reading as duplicate content.
+// A short, human-readable title for the rendered OG card, derived from the path.
+const OG_SECTION_TITLES: Record<string, string> = {
+  "/subnets": "Subnets",
+  "/providers": "Providers",
+  "/surfaces": "Interfaces",
+  "/endpoints": "Endpoints",
+  "/health": "Health",
+  "/schemas": "Schemas",
+  "/gaps": "Registry gaps",
+  "/about": "About",
+};
+function ogCardTitle(pathname: string): string {
+  const subnet = pathname.match(/^\/subnets\/([^/]+)\/?$/);
+  if (subnet) return `Subnet ${decodeURIComponent(subnet[1])}`;
+  const provider = pathname.match(/^\/providers\/([^/]+)\/?$/);
+  if (provider) return decodeURIComponent(provider[1]);
+  return OG_SECTION_TITLES[pathname] ?? "Metagraphed";
+}
+
+// Warm the TCP+TLS connection to the API origin before the first data fetch
+// (preconnect), with a dns-prefetch fallback for agents that ignore preconnect.
+const RESOURCE_HINTS =
+  `<link rel="preconnect" href="${API_ORIGIN}" crossorigin>` +
+  `<link rel="dns-prefetch" href="${API_ORIGIN}">`;
+
+// Dependency-free Web Vitals beacon → first-party Umami. LCP (last entry), CLS
+// (recent-input-excluded sum), and an INP proxy (worst slow-event duration) are
+// flushed once on page hide. Wrapped in try/catch so it can never break the page,
+// and no-ops if Umami hasn't loaded. Consistent with the first-party analytics
+// ethos (no third-party web-vitals CDN).
+const WEB_VITALS_SNIPPET =
+  `<script>(function(){` +
+  `function send(n,v){try{if(window.umami&&typeof window.umami.track==='function'){` +
+  `window.umami.track('web-vitals',{metric:n,value:Math.round(v)});}}catch(e){}}` +
+  `function obs(t,cb){try{new PerformanceObserver(cb).observe({type:t,buffered:true});}catch(e){}}` +
+  `var lcp=0,cls=0,inp=0;` +
+  `obs('largest-contentful-paint',function(l){var e=l.getEntries();var x=e[e.length-1];if(x)lcp=x.startTime;});` +
+  `obs('layout-shift',function(l){l.getEntries().forEach(function(e){if(!e.hadRecentInput)cls+=e.value;});});` +
+  `obs('event',function(l){l.getEntries().forEach(function(e){if(e.duration>inp)inp=e.duration;});});` +
+  `var done=false;function flush(){if(done)return;done=true;if(lcp)send('LCP',lcp);send('CLS',cls*1000);if(inp)send('INP',inp);}` +
+  `addEventListener('visibilitychange',function(){if(document.visibilityState==='hidden')flush();});` +
+  `addEventListener('pagehide',flush);` +
+  `})();</script>`;
+
+// Inject resource hints, the deferred tracker, a canonical link, schema.org
+// JSON-LD, the og:image/twitter:image (edge-rendered /og card), and a Web Vitals
+// beacon into <head> of HTML responses (streaming) and advertise the agent-
+// discovery resources via an RFC 8288 Link header. Canonical + JSON-LD + og:image
+// are set HERE (not per-route) so they are global, consistent, and regen-proof.
+// Canonical is origin + path with the query stripped, so filter/sort permutations
+// (e.g. /subnets?sort=health&health=down) consolidate to the one indexable URL
+// instead of reading as duplicate content.
 function injectAnalytics(response: Response, request: Request): Response {
   const contentType = response.headers.get("content-type") ?? "";
   if (!contentType.includes("text/html")) return response;
   const pathname = new URL(request.url).pathname;
   const canonicalTag = `<link rel="canonical" href="${escapeHtmlAttr(`${SITE_ORIGIN}${pathname}`)}">`;
   const jsonLdTag = `<script type="application/ld+json">${buildJsonLd(pathname)}</script>`;
+  const ogImage = `${SITE_ORIGIN}/og?title=${encodeURIComponent(ogCardTitle(pathname))}`;
+  const ogImageTags =
+    `<meta property="og:image" content="${escapeHtmlAttr(ogImage)}">` +
+    `<meta property="og:image:width" content="1200">` +
+    `<meta property="og:image:height" content="630">` +
+    `<meta name="twitter:image" content="${escapeHtmlAttr(ogImage)}">`;
   const transformed = new HTMLRewriter()
     .on("head", {
       element(element) {
+        element.append(RESOURCE_HINTS, { html: true });
         element.append(canonicalTag, { html: true });
         element.append(jsonLdTag, { html: true });
+        element.append(ogImageTags, { html: true });
         element.append(UMAMI_SNIPPET, { html: true });
+        element.append(WEB_VITALS_SNIPPET, { html: true });
       },
     })
     .transform(response);
@@ -391,16 +471,51 @@ async function normalizeCatastrophicSsrResponse(response: Response): Promise<Res
   });
 }
 
+// TanStack's server entry answers any non-HTML request (e.g. an MCP JSON-RPC
+// POST, or any Accept: application/json request, that hit the apex by mistake)
+// with a 500 {"error":"Only HTML requests are supported here"}. A 5xx wrongly
+// signals that the server failed and can trigger agent retries/backoff against a
+// "failing" host. The API and MCP server live on the canonical host
+// (api.metagraph.sh) and discovery already points agents there, so re-map this
+// misdirected-request case to a 404 that points at the canonical URL.
+async function normalizeNonHtmlSsrResponse(
+  request: Request,
+  response: Response,
+): Promise<Response> {
+  if (response.status < 500) return response;
+  const contentType = response.headers.get("content-type") ?? "";
+  if (!contentType.includes("application/json")) return response;
+  const body = await response.clone().text();
+  if (!body.includes("Only HTML requests are supported here")) return response;
+  const url = new URL(request.url);
+  return new Response(
+    JSON.stringify({
+      error: "not_found",
+      message: `${url.pathname} is not served on the human site (${SITE_ORIGIN}); the API and MCP server are on the canonical host.`,
+      canonical: `${API_ORIGIN}${url.pathname}${url.search}`,
+    }),
+    {
+      status: 404,
+      headers: { "content-type": "application/json; charset=utf-8" },
+    },
+  );
+}
+
 export default {
   async fetch(request: Request, env: unknown, ctx: unknown) {
     const statsResponse = await handleStatsProxy(request);
     if (statsResponse) return statsResponse;
+    const ogResponse = await handleOgImage(request);
+    if (ogResponse) return ogResponse;
     const discoveryResponse = await handleDiscovery(request);
     if (discoveryResponse) return discoveryResponse;
     try {
       const handler = await getServerEntry();
       const response = await handler.fetch(request, env, ctx);
-      const normalized = await normalizeCatastrophicSsrResponse(response);
+      const normalized = await normalizeNonHtmlSsrResponse(
+        request,
+        await normalizeCatastrophicSsrResponse(response),
+      );
       return injectAnalytics(normalized, request);
     } catch (error) {
       console.error(error);
