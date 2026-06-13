@@ -168,6 +168,7 @@ const SITEMAP_STATIC_PATHS = [
 // else (the request falls through to the SSR app).
 async function handleDiscovery(request: Request): Promise<Response | null> {
   const url = new URL(request.url);
+  if (url.pathname === "/robots.txt") return buildRobots();
   if (url.pathname === "/sitemap.xml") return buildSitemap();
   if (!DISCOVERY_PROXY_PATHS.has(url.pathname)) return null;
   if (request.method !== "GET" && request.method !== "HEAD") {
@@ -179,6 +180,28 @@ async function handleDiscovery(request: Request): Promise<Response | null> {
   const headers = new Headers(upstream.headers);
   headers.set("x-discovery-origin", "api.metagraph.sh");
   return new Response(upstream.body, { status: upstream.status, headers });
+}
+
+// robots.txt for the apex. metagraphed is a public, agent-ready registry, so all
+// crawlers (including AI agents) are welcome — the machine API + discovery
+// surfaces live on api.metagraph.sh (which serves its own robots.txt). Served
+// here by the Worker because Cloudflare Managed robots.txt is disabled for the
+// zone; advertises the human-page sitemap so crawlers can find it.
+function buildRobots(): Response {
+  const body =
+    `# metagraph.sh — public Bittensor subnet integration registry.\n` +
+    `# AI agents welcome; the machine API + discovery live on api.metagraph.sh.\n` +
+    `User-agent: *\n` +
+    `Allow: /\n` +
+    `\n` +
+    `Sitemap: ${SITE_ORIGIN}/sitemap.xml\n`;
+  return new Response(body, {
+    status: 200,
+    headers: {
+      "content-type": "text/plain; charset=utf-8",
+      "cache-control": "public, max-age=3600",
+    },
+  });
 }
 
 // Build the apex sitemap: canonical static pages + one entry per live subnet (by netuid) and per
@@ -342,14 +365,39 @@ function ogCardTitle(pathname: string): string {
   return OG_SECTION_TITLES[pathname] ?? "Metagraphed";
 }
 
-// Inject the deferred tracker, a canonical link, schema.org JSON-LD, and the
-// og:image/twitter:image (the edge-rendered /og card) into <head> of HTML
-// responses (streaming) and advertise the agent-discovery resources via an RFC
-// 8288 Link header. Canonical + JSON-LD + og:image are set HERE (not per-route)
-// so they are global, consistent, and regen-proof. Canonical is origin + path
-// with the query stripped, so filter/sort permutations (e.g.
-// /subnets?sort=health&health=down) consolidate to the one indexable URL instead
-// of reading as duplicate content.
+// Warm the TCP+TLS connection to the API origin before the first data fetch
+// (preconnect), with a dns-prefetch fallback for agents that ignore preconnect.
+const RESOURCE_HINTS =
+  `<link rel="preconnect" href="${API_ORIGIN}" crossorigin>` +
+  `<link rel="dns-prefetch" href="${API_ORIGIN}">`;
+
+// Dependency-free Web Vitals beacon → first-party Umami. LCP (last entry), CLS
+// (recent-input-excluded sum), and an INP proxy (worst slow-event duration) are
+// flushed once on page hide. Wrapped in try/catch so it can never break the page,
+// and no-ops if Umami hasn't loaded. Consistent with the first-party analytics
+// ethos (no third-party web-vitals CDN).
+const WEB_VITALS_SNIPPET =
+  `<script>(function(){` +
+  `function send(n,v){try{if(window.umami&&typeof window.umami.track==='function'){` +
+  `window.umami.track('web-vitals',{metric:n,value:Math.round(v)});}}catch(e){}}` +
+  `function obs(t,cb){try{new PerformanceObserver(cb).observe({type:t,buffered:true});}catch(e){}}` +
+  `var lcp=0,cls=0,inp=0;` +
+  `obs('largest-contentful-paint',function(l){var e=l.getEntries();var x=e[e.length-1];if(x)lcp=x.startTime;});` +
+  `obs('layout-shift',function(l){l.getEntries().forEach(function(e){if(!e.hadRecentInput)cls+=e.value;});});` +
+  `obs('event',function(l){l.getEntries().forEach(function(e){if(e.duration>inp)inp=e.duration;});});` +
+  `var done=false;function flush(){if(done)return;done=true;if(lcp)send('LCP',lcp);send('CLS',cls*1000);if(inp)send('INP',inp);}` +
+  `addEventListener('visibilitychange',function(){if(document.visibilityState==='hidden')flush();});` +
+  `addEventListener('pagehide',flush);` +
+  `})();</script>`;
+
+// Inject resource hints, the deferred tracker, a canonical link, schema.org
+// JSON-LD, the og:image/twitter:image (edge-rendered /og card), and a Web Vitals
+// beacon into <head> of HTML responses (streaming) and advertise the agent-
+// discovery resources via an RFC 8288 Link header. Canonical + JSON-LD + og:image
+// are set HERE (not per-route) so they are global, consistent, and regen-proof.
+// Canonical is origin + path with the query stripped, so filter/sort permutations
+// (e.g. /subnets?sort=health&health=down) consolidate to the one indexable URL
+// instead of reading as duplicate content.
 function injectAnalytics(response: Response, request: Request): Response {
   const contentType = response.headers.get("content-type") ?? "";
   if (!contentType.includes("text/html")) return response;
@@ -365,10 +413,12 @@ function injectAnalytics(response: Response, request: Request): Response {
   const transformed = new HTMLRewriter()
     .on("head", {
       element(element) {
+        element.append(RESOURCE_HINTS, { html: true });
         element.append(canonicalTag, { html: true });
         element.append(jsonLdTag, { html: true });
         element.append(ogImageTags, { html: true });
         element.append(UMAMI_SNIPPET, { html: true });
+        element.append(WEB_VITALS_SNIPPET, { html: true });
       },
     })
     .transform(response);
