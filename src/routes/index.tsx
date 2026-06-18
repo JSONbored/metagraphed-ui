@@ -15,6 +15,7 @@ import { AnimatedNumber } from "@/components/metagraphed/animated-number";
 import { EntityHoverCard } from "@/components/metagraphed/entity-hover-card";
 import { CopyableCode } from "@/components/metagraphed/copyable-code";
 import { InfoTooltip } from "@/components/metagraphed/info-tooltip";
+import { safeExternalUrl } from "@/components/metagraphed/external-link";
 
 import {
   coverageQuery,
@@ -119,7 +120,7 @@ function OverviewPage() {
               API reference →
             </Link>
             <a
-              href={`${API_BASE}/api/v1/openapi.json`}
+              href={safeExternalUrl(`${API_BASE}/api/v1/openapi.json`)}
               className="text-ink-muted hover:text-ink-strong"
               target="_blank"
               rel="noreferrer"

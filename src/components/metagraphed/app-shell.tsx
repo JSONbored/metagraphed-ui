@@ -10,6 +10,7 @@ import { CopyableCode } from "./copyable-code";
 import { SettingsPopover } from "./settings-popover";
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip";
 import { classNames } from "@/lib/metagraphed/format";
+import { safeExternalUrl } from "./external-link";
 import { freshnessQuery, buildQuery } from "@/lib/metagraphed/queries";
 import { NavMegaMenu, MobileMegaMenu } from "./nav-mega-menu";
 import { RegistryTicker } from "./registry-ticker";
@@ -261,7 +262,7 @@ function SiteFooter() {
         </FooterCol>
         <FooterCol title="Data">
           <a
-            href={`${API_BASE}/api/v1`}
+            href={safeExternalUrl(`${API_BASE}/api/v1`)}
             target="_blank"
             rel="noopener noreferrer"
             className="hover:text-ink-strong transition-colors font-mono break-all"
@@ -269,7 +270,7 @@ function SiteFooter() {
             {API_BASE.replace(/^https?:\/\//, "")}/api/v1
           </a>
           <a
-            href={`${API_BASE}/api/v1/openapi.json`}
+            href={safeExternalUrl(`${API_BASE}/api/v1/openapi.json`)}
             target="_blank"
             rel="noopener noreferrer"
             className="hover:text-ink-strong transition-colors"
@@ -342,7 +343,7 @@ function RegistryPulseStrip() {
       ) : null}
       <span>·</span>
       <a
-        href={`${API_BASE}/api/v1/openapi.json`}
+        href={safeExternalUrl(`${API_BASE}/api/v1/openapi.json`)}
         target="_blank"
         rel="noopener noreferrer"
         className="hover:text-ink-strong transition-colors"

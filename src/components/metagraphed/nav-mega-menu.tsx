@@ -33,6 +33,7 @@ import {
 } from "@/lib/metagraphed/queries";
 import { API_BASE } from "@/lib/metagraphed/config";
 import { CopyButton } from "./copy-button";
+import { safeExternalUrl } from "./external-link";
 import { HoverCard, HoverCardContent, HoverCardTrigger } from "@/components/ui/hover-card";
 import {
   Accordion,
@@ -877,7 +878,7 @@ function MegaPanelBody({
           <span>{panel.apiPath}</span>
           <CopyButton value={`${API_BASE}${panel.apiPath}`} label={`${panel.apiPath} URL`} />
           <a
-            href={`${API_BASE}${panel.apiPath}`}
+            href={safeExternalUrl(`${API_BASE}${panel.apiPath}`)}
             target="_blank"
             rel="noopener noreferrer"
             className="inline-flex items-center gap-1 hover:text-ink-strong"

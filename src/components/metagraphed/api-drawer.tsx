@@ -9,6 +9,7 @@ import { API_BASE } from "@/lib/metagraphed/config";
 import { CopyableCode } from "./copyable-code";
 import { Kbd } from "./kbd";
 import { classNames } from "@/lib/metagraphed/format";
+import { safeExternalUrl } from "./external-link";
 
 /** Header trigger button. Hidden when no page has registered an API source. */
 export function ApiDrawerTrigger() {
@@ -146,7 +147,7 @@ function ApiSourceBody({ source }: { source: ApiSource }) {
           </span>
           <span className="min-w-0 flex-1">{fullUrl}</span>
           <a
-            href={fullUrl}
+            href={safeExternalUrl(fullUrl)}
             target="_blank"
             rel="noopener noreferrer"
             aria-label="Open raw"
