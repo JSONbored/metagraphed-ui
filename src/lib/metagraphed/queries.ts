@@ -1,6 +1,7 @@
 import { queryOptions, infiniteQueryOptions } from "@tanstack/react-query";
 import { apiFetch, type ApiResult, type QueryParams } from "./client";
 import { getNetwork } from "./config";
+import { safeExternalUrl } from "./url-safety";
 import type {
   AdapterSnapshot,
   AgentResource,
@@ -1454,7 +1455,7 @@ function normalizeSchema(raw: unknown): SchemaInfo {
       (s.surface_id as string) ??
       `${(s.netuid as number) ?? "?"}-${(s.path as string) ?? (s.url as string) ?? "schema"}`,
     name: (snap.title as string) ?? (s.name as string) ?? (s.surface_id as string),
-    url: (s.schema_url as string) ?? (s.url as string) ?? (s.surface_url as string),
+    url: safeExternalUrl((s.schema_url as string | undefined) ?? (s.url as string | undefined)),
     netuid: (s.netuid as number) ?? (snap.netuid as number),
     surface_id: (s.surface_id as string) ?? (snap.surface_id as string),
     drift_status: drift,

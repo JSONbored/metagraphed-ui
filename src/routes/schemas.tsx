@@ -17,6 +17,7 @@ import { TimeAgo } from "@/components/metagraphed/time-ago";
 import { ApiSourceFooter } from "@/components/metagraphed/api-source-footer";
 import { CopyableCode } from "@/components/metagraphed/copyable-code";
 import { ExternalLink } from "@/components/metagraphed/external-link";
+import { safeExternalUrl } from "@/lib/metagraphed/url-safety";
 import { EmptyState, ErrorState, Skeleton, StaleBanner } from "@/components/metagraphed/states";
 import { TableState } from "@/components/metagraphed/table-state";
 import { PageHero } from "@/components/metagraphed/page-hero";
@@ -29,6 +30,39 @@ import { API_BASE } from "@/lib/metagraphed/config";
 import { formatRelative, isStaleFreshness } from "@/lib/metagraphed/format";
 import { lineDiff, diffStats } from "@/lib/metagraphed/diff";
 import type { SchemaInfo } from "@/lib/metagraphed/types";
+
+const MAX_SCHEMA_FALLBACK_BYTES = 1_000_000;
+
+async function readCappedText(response: Response, maxBytes = MAX_SCHEMA_FALLBACK_BYTES) {
+  const contentLength = response.headers.get("content-length");
+  if (contentLength && Number(contentLength) > maxBytes) {
+    throw new Error("Schema response exceeds maximum size");
+  }
+
+  const reader = response.body?.getReader();
+  if (!reader) return response.text();
+
+  const chunks: Uint8Array[] = [];
+  let total = 0;
+  while (true) {
+    const { done, value } = await reader.read();
+    if (done) break;
+    total += value.byteLength;
+    if (total > maxBytes) {
+      await reader.cancel();
+      throw new Error("Schema response exceeds maximum size");
+    }
+    chunks.push(value);
+  }
+
+  const bytes = new Uint8Array(total);
+  let offset = 0;
+  for (const chunk of chunks) {
+    bytes.set(chunk, offset);
+    offset += chunk.byteLength;
+  }
+  return new TextDecoder().decode(bytes);
+}
 
 const schemasSearchSchema = z.object({
   drift: fallback(z.enum(["all", "drift", "stable"]), "all").default("all"),
@@ -316,9 +350,10 @@ function DriftView({ schema }: { schema: SchemaInfo }) {
         );
         return res.data;
       } catch {
-        if (schema.url) {
-          const r = await fetch(schema.url, { signal });
-          const text = await r.text();
+        const schemaUrl = safeExternalUrl(schema.url);
+        if (schemaUrl) {
+          const r = await fetch(schemaUrl, { signal });
+          const text = await readCappedText(r);
           let parsed: unknown = text;
           try {
             parsed = JSON.parse(text);
