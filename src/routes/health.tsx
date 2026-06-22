@@ -25,6 +25,7 @@ import {
   freshnessQuery,
   sourceHealthQuery,
   endpointIncidentsQuery,
+  metagraphedQueryKey,
 } from "@/lib/metagraphed/queries";
 import { humaniseSeconds, isStaleFreshness, classNames } from "@/lib/metagraphed/format";
 import { AnimatedNumber } from "@/components/metagraphed/animated-number";
@@ -380,9 +381,9 @@ function StatusBoard({ interval }: { interval: number | false }) {
         <StaleBanner
           generatedAt={hRes.meta?.generated_at}
           refreshQueryKeys={[
-            ["metagraphed", "health"],
-            ["metagraphed", "freshness"],
-            ["metagraphed", "source-health"],
+            metagraphedQueryKey("health"),
+            metagraphedQueryKey("freshness"),
+            metagraphedQueryKey("source-health"),
           ]}
           refreshLabel="Refresh health now"
         />
