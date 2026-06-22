@@ -118,7 +118,6 @@ export function SafeLogo({ src, alt, fallbackText, size = 24, className, ...rest
       loading="lazy"
       decoding="async"
       referrerPolicy="no-referrer"
-      crossOrigin="anonymous"
       onError={() => setFailed(true)}
       className={className}
     />
