@@ -301,7 +301,7 @@ function DriftTile({
             "inline-flex items-center gap-1 rounded-r border-y border-r px-1.5 -ml-px font-mono text-[9px] uppercase tracking-[0.12em] text-ink-muted hover:text-accent transition-colors",
             tone.fill,
           )}
-          title={`Source evidence${evidence.source ? ` · ${evidence.source}` : ""}${evidence.recorded_at ? ` · recorded ${new Date(evidence.recorded_at).toISOString().slice(0, 10)}` : ""}`}
+          title={`Source evidence${evidence?.source ? ` · ${evidence.source}` : ""}${evidence?.recorded_at ? ` · recorded ${new Date(evidence.recorded_at).toISOString().slice(0, 10)}` : ""}`}
         >
           ev <ExtIcon className="size-2.5" aria-hidden />
         </a>
