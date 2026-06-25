@@ -72,7 +72,14 @@ function hrefFor(hit: Hit): string {
 type NavTarget =
   | { kind: "hit"; hit: Hit }
   | { kind: "action" }
-  | { kind: "nav"; label: string; hint: string; to: string; params?: Record<string, string>; icon: typeof User };
+  | {
+      kind: "nav";
+      label: string;
+      hint: string;
+      to: string;
+      params?: Record<string, string>;
+      icon: typeof User;
+    };
 
 /**
  * Navbar omnibox. Real text input with a live suggestions popover. Groups
@@ -414,16 +421,19 @@ export function NavOmnibox({ onOpenPalette }: Props) {
                   No results.
                 </div>
               ) : hits.length > 0 ? (
-                <div className={classNames("px-2 pb-1", navTargets.length > 0 ? "border-t border-border pt-2" : "pt-2")}>
+                <div
+                  className={classNames(
+                    "px-2 pb-1",
+                    navTargets.length > 0 ? "border-t border-border pt-2" : "pt-2",
+                  )}
+                >
                   {[...grouped.entries()].map(([kind, items]) => {
                     const Icon = KIND_ICON[kind] ?? Activity;
                     return (
                       <div key={kind} className="mb-1 last:mb-0">
                         <p className="px-1 mg-label mb-1">{KIND_LABEL[kind] ?? kind}s</p>
                         {items.map((h) => {
-                          const idx = flat.findIndex(
-                            (f) => f.kind === "hit" && f.hit.id === h.id,
-                          );
+                          const idx = flat.findIndex((f) => f.kind === "hit" && f.hit.id === h.id);
                           const isActive = idx === active;
                           return (
                             <button
