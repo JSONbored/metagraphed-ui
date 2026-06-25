@@ -265,6 +265,33 @@ describe("normalizeGap", () => {
     expect(out.missing_kinds).toEqual([]);
     expect(out.gap_notes).toEqual([]);
   });
+
+  it("maps served gap_severity vocab (critical→high, warning→medium, info→low)", () => {
+    const high = normalizeGap({ netuid: 1, gap_severity: "critical", gaps: { missing_kinds: ["docs"] } });
+    const med  = normalizeGap({ netuid: 2, gap_severity: "warning",  gaps: { missing_kinds: ["docs"] } });
+    const low  = normalizeGap({ netuid: 3, gap_severity: "info",     gaps: { missing_kinds: ["docs"] } });
+    expect(high.severity).toBe("high");
+    expect(med.severity).toBe("medium");
+    expect(low.severity).toBe("low");
+  });
+
+  it("falls back to client derivation when gap_severity is absent", () => {
+    // core>=1 + 3 missing → high
+    const out = normalizeGap({ netuid: 7, gaps: { missing_kinds: ["openapi", "docs", "dashboard"] } });
+    expect(out.severity).toBe("high");
+  });
+
+  it("threads gap_priority through to the returned Gap", () => {
+    const out = normalizeGap({ netuid: 4, gap_priority: 42, gaps: { missing_kinds: ["docs"] } });
+    expect(out.gap_priority).toBe(42);
+  });
+
+  it("omits gap_priority when absent or non-numeric", () => {
+    const absent = normalizeGap({ netuid: 5, gaps: {} });
+    const str    = normalizeGap({ netuid: 6, gap_priority: "high", gaps: {} });
+    expect(absent.gap_priority).toBeUndefined();
+    expect(str.gap_priority).toBeUndefined();
+  });
 });
 
 describe("normalizeCompare", () => {
