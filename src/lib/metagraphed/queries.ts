@@ -11,10 +11,14 @@ import type {
   AgentResources,
   AccountBalance,
   AccountDay,
+  AccountExtrinsics,
   AccountEvent,
   AccountHistory,
   AccountRegistration,
   AccountSummary,
+  AccountTransfer,
+  AccountTransferDirection,
+  AccountTransfers,
   Block,
   Extrinsic,
   Candidate,
@@ -850,6 +854,8 @@ function normalizeExtrinsic(raw: unknown): Extrinsic | null {
     call_module: firstString(raw.call_module) ?? null,
     call_function: firstString(raw.call_function) ?? null,
     success: typeof raw.success === "boolean" ? raw.success : null,
+    fee_tao: firstFiniteNumber(raw.fee_tao) ?? null,
+    tip_tao: firstFiniteNumber(raw.tip_tao) ?? null,
     observed_at: firstString(raw.observed_at),
   } as Extrinsic;
 }
@@ -955,6 +961,61 @@ export function normalizeAccountHistory(raw: unknown, ss58: string): AccountHist
   } as AccountHistory;
 }
 
+export function normalizeAccountExtrinsics(raw: unknown, ss58: string): AccountExtrinsics {
+  const d = isRecord(raw) ? raw : {};
+  const extrinsics = Array.isArray(d.extrinsics)
+    ? d.extrinsics.flatMap((row) => {
+        const normalized = normalizeExtrinsic(row);
+        return normalized ? [normalized] : [];
+      })
+    : [];
+  return {
+    ...(d as object),
+    ss58: firstString(d.ss58) ?? ss58,
+    extrinsic_count: firstFiniteNumber(d.extrinsic_count) ?? extrinsics.length,
+    limit: firstFiniteNumber(d.limit) ?? null,
+    offset: firstFiniteNumber(d.offset) ?? null,
+    extrinsics,
+  } as AccountExtrinsics;
+}
+
+function normalizeAccountTransferDirection(value: unknown): AccountTransferDirection | null {
+  if (value === "sent" || value === "received") return value;
+  return null;
+}
+
+function normalizeAccountTransfer(raw: unknown): AccountTransfer | undefined {
+  if (!isRecord(raw)) return undefined;
+  return {
+    ...(raw as object),
+    block_number: firstFiniteNumber(raw.block_number) ?? null,
+    event_index: firstFiniteNumber(raw.event_index) ?? null,
+    from: firstString(raw.from) ?? null,
+    to: firstString(raw.to) ?? null,
+    amount_tao: firstFiniteNumber(raw.amount_tao) ?? null,
+    direction: normalizeAccountTransferDirection(raw.direction),
+    observed_at: firstString(raw.observed_at) ?? null,
+  } as AccountTransfer;
+}
+
+export function normalizeAccountTransfers(raw: unknown, ss58: string): AccountTransfers {
+  const d = isRecord(raw) ? raw : {};
+  const transfers = Array.isArray(d.transfers)
+    ? d.transfers.flatMap((row) => {
+        const normalized = normalizeAccountTransfer(row);
+        return normalized ? [normalized] : [];
+      })
+    : [];
+  return {
+    ...(d as object),
+    ss58: firstString(d.ss58) ?? ss58,
+    transfer_count: firstFiniteNumber(d.transfer_count) ?? transfers.length,
+    limit: firstFiniteNumber(d.limit) ?? null,
+    offset: firstFiniteNumber(d.offset) ?? null,
+    transfers,
+  } as AccountTransfers;
+}
+
 /** Cross-subnet activity summary for one account by ss58. */
 export const accountQuery = (ss58: string) =>
   queryOptions({
@@ -1004,6 +1065,59 @@ export const accountHistoryQuery = (ss58: string, params: AccountHistoryParams =
       } as ApiResult<AccountHistory>;
     },
     staleTime: STALE_MED,
+  });
+
+export interface AccountExtrinsicsParams extends QueryParams {
+  limit?: number;
+  offset?: number;
+}
+
+/** Signed extrinsics for one account, matched by signer only (not coldkey union). */
+export const accountExtrinsicsQuery = (ss58: string, params: AccountExtrinsicsParams = {}) =>
+  queryOptions({
+    queryKey: k("account-extrinsics", ss58, params.limit ?? null, params.offset ?? null),
+    queryFn: async ({ signal }) => {
+      const res = await apiFetch<unknown>(`/api/v1/accounts/${ss58PathSegment(ss58)}/extrinsics`, {
+        params,
+        signal,
+      });
+      return {
+        data: normalizeAccountExtrinsics(res.data, ss58),
+        meta: res.meta,
+        url: res.url,
+      } as ApiResult<AccountExtrinsics>;
+    },
+    staleTime: STALE_SHORT,
+  });
+
+export interface AccountTransfersParams extends QueryParams {
+  direction?: "all" | AccountTransferDirection;
+  limit?: number;
+  offset?: number;
+}
+
+/** Native-TAO Balances.Transfer feed for one account, newest first. */
+export const accountTransfersQuery = (ss58: string, params: AccountTransfersParams = {}) =>
+  queryOptions({
+    queryKey: k(
+      "account-transfers",
+      ss58,
+      params.direction ?? "all",
+      params.limit ?? null,
+      params.offset ?? null,
+    ),
+    queryFn: async ({ signal }) => {
+      const res = await apiFetch<unknown>(`/api/v1/accounts/${ss58PathSegment(ss58)}/transfers`, {
+        params,
+        signal,
+      });
+      return {
+        data: normalizeAccountTransfers(res.data, ss58),
+        meta: res.meta,
+        url: res.url,
+      } as ApiResult<AccountTransfers>;
+    },
+    staleTime: STALE_SHORT,
   });
 
 /**

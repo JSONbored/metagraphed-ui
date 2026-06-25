@@ -784,6 +784,8 @@ export interface Extrinsic {
   call_module?: string | null;
   call_function?: string | null;
   success?: boolean | null;
+  fee_tao?: number | null;
+  tip_tao?: number | null;
   observed_at?: string; // iso
   [key: string]: unknown;
 }
@@ -845,6 +847,40 @@ export interface AccountHistory {
   limit?: number | null;
   offset?: number | null;
   days: AccountDay[];
+  [key: string]: unknown;
+}
+
+/** The signed-extrinsic feed for one account from /api/v1/accounts/{ss58}/extrinsics. */
+export interface AccountExtrinsics {
+  ss58: string;
+  extrinsic_count: number;
+  limit?: number | null;
+  offset?: number | null;
+  extrinsics: Extrinsic[];
+  [key: string]: unknown;
+}
+
+export type AccountTransferDirection = "sent" | "received";
+
+/** One native-TAO Balances.Transfer row for an account, newest-first. */
+export interface AccountTransfer {
+  block_number: number | null;
+  event_index: number | null;
+  from?: string | null;
+  to?: string | null;
+  amount_tao?: number | null;
+  direction?: AccountTransferDirection | null;
+  observed_at?: string | null;
+  [key: string]: unknown;
+}
+
+/** Directional native-TAO transfer feed for one account from /transfers. */
+export interface AccountTransfers {
+  ss58: string;
+  transfer_count: number;
+  limit?: number | null;
+  offset?: number | null;
+  transfers: AccountTransfer[];
   [key: string]: unknown;
 }
 

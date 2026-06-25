@@ -1,7 +1,9 @@
 import { describe, it, expect } from "vitest";
 
 import {
+  normalizeAccountExtrinsics,
   normalizeAccountHistory,
+  normalizeAccountTransfers,
   normalizeSubnet,
   normalizeSubnetProfile,
   normalizeGap,
@@ -191,6 +193,149 @@ describe("normalizeAccountHistory", () => {
         event_kinds: ["StakeAdded", "7", "false"],
         first_block: null,
         last_block: null,
+      },
+    ]);
+  });
+});
+
+describe("normalizeAccountExtrinsics", () => {
+  it("reads the nested extrinsics payload and preserves fee_tao", () => {
+    const out = normalizeAccountExtrinsics(
+      {
+        ss58: "5Signer",
+        extrinsic_count: 1,
+        limit: 10,
+        offset: 0,
+        extrinsics: [
+          {
+            block_number: 123,
+            extrinsic_index: 4,
+            extrinsic_hash: "0xabc123",
+            signer: "5Signer",
+            call_module: "SubtensorModule",
+            call_function: "add_stake",
+            success: true,
+            fee_tao: 0.0192,
+            observed_at: "2026-06-25T12:00:00Z",
+          },
+        ],
+      },
+      "5Fallback",
+    );
+
+    expect(out.ss58).toBe("5Signer");
+    expect(out.extrinsic_count).toBe(1);
+    expect(out.limit).toBe(10);
+    expect(out.offset).toBe(0);
+    expect(out.extrinsics).toEqual([
+      {
+        block_number: 123,
+        extrinsic_index: 4,
+        extrinsic_hash: "0xabc123",
+        signer: "5Signer",
+        call_module: "SubtensorModule",
+        call_function: "add_stake",
+        success: true,
+        fee_tao: 0.0192,
+        tip_tao: null,
+        observed_at: "2026-06-25T12:00:00Z",
+      },
+    ]);
+  });
+
+  it("returns a schema-stable zero for a cold or empty response", () => {
+    const out = normalizeAccountExtrinsics({}, "5Empty");
+    expect(out.ss58).toBe("5Empty");
+    expect(out.extrinsic_count).toBe(0);
+    expect(out.limit).toBeNull();
+    expect(out.offset).toBeNull();
+    expect(out.extrinsics).toEqual([]);
+  });
+});
+
+describe("normalizeAccountTransfers", () => {
+  it("reads the directional native-TAO transfer feed", () => {
+    const out = normalizeAccountTransfers(
+      {
+        ss58: "5Account",
+        transfer_count: 2,
+        transfers: [
+          {
+            block_number: 98,
+            event_index: 1,
+            from: "5Account",
+            to: "5Peer",
+            amount_tao: 12.5,
+            direction: "sent",
+            observed_at: "2026-06-25T11:00:00Z",
+          },
+          {
+            block_number: 97,
+            event_index: 2,
+            from: "5Peer",
+            to: "5Account",
+            amount_tao: 2.25,
+            direction: "received",
+            observed_at: "2026-06-25T10:00:00Z",
+          },
+        ],
+      },
+      "5Fallback",
+    );
+
+    expect(out.ss58).toBe("5Account");
+    expect(out.transfer_count).toBe(2);
+    expect(out.transfers).toEqual([
+      {
+        block_number: 98,
+        event_index: 1,
+        from: "5Account",
+        to: "5Peer",
+        amount_tao: 12.5,
+        direction: "sent",
+        observed_at: "2026-06-25T11:00:00Z",
+      },
+      {
+        block_number: 97,
+        event_index: 2,
+        from: "5Peer",
+        to: "5Account",
+        amount_tao: 2.25,
+        direction: "received",
+        observed_at: "2026-06-25T10:00:00Z",
+      },
+    ]);
+  });
+
+  it("normalizes malformed directions to null and filters non-object rows", () => {
+    const out = normalizeAccountTransfers(
+      {
+        transfers: [
+          null,
+          {
+            block_number: 1,
+            event_index: 7,
+            from: "5A",
+            to: "5B",
+            amount_tao: 0.5,
+            direction: "sideways",
+          },
+        ],
+      },
+      "5Dir",
+    );
+
+    expect(out.ss58).toBe("5Dir");
+    expect(out.transfer_count).toBe(1);
+    expect(out.transfers).toEqual([
+      {
+        block_number: 1,
+        event_index: 7,
+        from: "5A",
+        to: "5B",
+        amount_tao: 0.5,
+        direction: null,
+        observed_at: null,
       },
     ]);
   });
