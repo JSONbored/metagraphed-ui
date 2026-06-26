@@ -3,7 +3,13 @@ import type { ReactNode } from "react";
 import { useEffect, useMemo, useState } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { ChevronRight, Compass, Github, Menu, X } from "lucide-react";
-import { API_BASE, DISCORD_URL, GITHUB_REPO } from "@/lib/metagraphed/config";
+import {
+  API_BASE,
+  DEFAULT_DISCORD_URL,
+  DEFAULT_GITHUB_REPO,
+  DISCORD_URL,
+  GITHUB_REPO,
+} from "@/lib/metagraphed/config";
 import { useApiBase } from "@/hooks/use-api-base";
 import { useEndpointHealth, type EndpointHealth } from "@/hooks/use-endpoint-health";
 import { NetworkSwitcher } from "./network-switcher";
@@ -26,6 +32,12 @@ import { ApiSourceProvider } from "@/lib/metagraphed/api-source-context";
 import { IncidentStrip } from "./incident-strip";
 import { pushRecentVisit, visitFromPath } from "@/lib/metagraphed/recent-visits";
 import { BackToTop } from "./back-to-top";
+
+// Brand links resolve from build-time env constants, but still run them through
+// the external-URL guard (with a known-good fallback) so a misconfigured
+// override can't inject an unsafe href — the same treatment the API links get.
+const GITHUB_HREF = safeExternalUrl(GITHUB_REPO) ?? DEFAULT_GITHUB_REPO;
+const DISCORD_HREF = safeExternalUrl(DISCORD_URL) ?? DEFAULT_DISCORD_URL;
 
 function buildCrumbs(pathname: string) {
   const parts = pathname.split("/").filter(Boolean);
@@ -138,7 +150,7 @@ export function AppShell({ children }: { children: ReactNode }) {
                 <Tooltip>
                   <TooltipTrigger asChild>
                     <a
-                      href={GITHUB_REPO}
+                      href={GITHUB_HREF}
                       target="_blank"
                       rel="noopener noreferrer"
                       aria-label="GitHub repository"
@@ -154,7 +166,7 @@ export function AppShell({ children }: { children: ReactNode }) {
                 <Tooltip>
                   <TooltipTrigger asChild>
                     <a
-                      href={DISCORD_URL}
+                      href={DISCORD_HREF}
                       target="_blank"
                       rel="noopener noreferrer"
                       aria-label="Discord community"
@@ -283,7 +295,7 @@ function SiteFooter() {
           </p>
           <div className="mt-4 flex items-center gap-1">
             <a
-              href={GITHUB_REPO}
+              href={GITHUB_HREF}
               target="_blank"
               rel="noopener noreferrer"
               aria-label="GitHub repository"
@@ -293,7 +305,7 @@ function SiteFooter() {
               <Github className="size-4" />
             </a>
             <a
-              href={DISCORD_URL}
+              href={DISCORD_HREF}
               target="_blank"
               rel="noopener noreferrer"
               aria-label="Discord community"
