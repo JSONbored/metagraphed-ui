@@ -20,10 +20,14 @@ import { Route as AboutRouteImport } from './routes/about'
 import { Route as IndexRouteImport } from './routes/index'
 import { Route as SubnetsIndexRouteImport } from './routes/subnets.index'
 import { Route as ProvidersIndexRouteImport } from './routes/providers.index'
+import { Route as ExtrinsicsIndexRouteImport } from './routes/extrinsics.index'
 import { Route as BlocksIndexRouteImport } from './routes/blocks.index'
+import { Route as AccountsIndexRouteImport } from './routes/accounts.index'
 import { Route as SubnetsNetuidRouteImport } from './routes/subnets.$netuid'
 import { Route as ProvidersSlugRouteImport } from './routes/providers.$slug'
+import { Route as ExtrinsicsHashRouteImport } from './routes/extrinsics.$hash'
 import { Route as BlocksRefRouteImport } from './routes/blocks.$ref'
+import { Route as AccountsSs58RouteImport } from './routes/accounts.$ss58'
 
 const SurfacesRoute = SurfacesRouteImport.update({
   id: '/surfaces',
@@ -80,9 +84,19 @@ const ProvidersIndexRoute = ProvidersIndexRouteImport.update({
   path: '/providers/',
   getParentRoute: () => rootRouteImport,
 } as any)
+const ExtrinsicsIndexRoute = ExtrinsicsIndexRouteImport.update({
+  id: '/extrinsics/',
+  path: '/extrinsics/',
+  getParentRoute: () => rootRouteImport,
+} as any)
 const BlocksIndexRoute = BlocksIndexRouteImport.update({
   id: '/blocks/',
   path: '/blocks/',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const AccountsIndexRoute = AccountsIndexRouteImport.update({
+  id: '/accounts/',
+  path: '/accounts/',
   getParentRoute: () => rootRouteImport,
 } as any)
 const SubnetsNetuidRoute = SubnetsNetuidRouteImport.update({
@@ -95,9 +109,19 @@ const ProvidersSlugRoute = ProvidersSlugRouteImport.update({
   path: '/providers/$slug',
   getParentRoute: () => rootRouteImport,
 } as any)
+const ExtrinsicsHashRoute = ExtrinsicsHashRouteImport.update({
+  id: '/extrinsics/$hash',
+  path: '/extrinsics/$hash',
+  getParentRoute: () => rootRouteImport,
+} as any)
 const BlocksRefRoute = BlocksRefRouteImport.update({
   id: '/blocks/$ref',
   path: '/blocks/$ref',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const AccountsSs58Route = AccountsSs58RouteImport.update({
+  id: '/accounts/$ss58',
+  path: '/accounts/$ss58',
   getParentRoute: () => rootRouteImport,
 } as any)
 
@@ -111,10 +135,14 @@ export interface FileRoutesByFullPath {
   '/schemas': typeof SchemasRoute
   '/status': typeof StatusRoute
   '/surfaces': typeof SurfacesRoute
+  '/accounts/$ss58': typeof AccountsSs58Route
   '/blocks/$ref': typeof BlocksRefRoute
+  '/extrinsics/$hash': typeof ExtrinsicsHashRoute
   '/providers/$slug': typeof ProvidersSlugRoute
   '/subnets/$netuid': typeof SubnetsNetuidRoute
+  '/accounts/': typeof AccountsIndexRoute
   '/blocks/': typeof BlocksIndexRoute
+  '/extrinsics/': typeof ExtrinsicsIndexRoute
   '/providers/': typeof ProvidersIndexRoute
   '/subnets/': typeof SubnetsIndexRoute
 }
@@ -128,10 +156,14 @@ export interface FileRoutesByTo {
   '/schemas': typeof SchemasRoute
   '/status': typeof StatusRoute
   '/surfaces': typeof SurfacesRoute
+  '/accounts/$ss58': typeof AccountsSs58Route
   '/blocks/$ref': typeof BlocksRefRoute
+  '/extrinsics/$hash': typeof ExtrinsicsHashRoute
   '/providers/$slug': typeof ProvidersSlugRoute
   '/subnets/$netuid': typeof SubnetsNetuidRoute
+  '/accounts': typeof AccountsIndexRoute
   '/blocks': typeof BlocksIndexRoute
+  '/extrinsics': typeof ExtrinsicsIndexRoute
   '/providers': typeof ProvidersIndexRoute
   '/subnets': typeof SubnetsIndexRoute
 }
@@ -146,10 +178,14 @@ export interface FileRoutesById {
   '/schemas': typeof SchemasRoute
   '/status': typeof StatusRoute
   '/surfaces': typeof SurfacesRoute
+  '/accounts/$ss58': typeof AccountsSs58Route
   '/blocks/$ref': typeof BlocksRefRoute
+  '/extrinsics/$hash': typeof ExtrinsicsHashRoute
   '/providers/$slug': typeof ProvidersSlugRoute
   '/subnets/$netuid': typeof SubnetsNetuidRoute
+  '/accounts/': typeof AccountsIndexRoute
   '/blocks/': typeof BlocksIndexRoute
+  '/extrinsics/': typeof ExtrinsicsIndexRoute
   '/providers/': typeof ProvidersIndexRoute
   '/subnets/': typeof SubnetsIndexRoute
 }
@@ -165,10 +201,14 @@ export interface FileRouteTypes {
     | '/schemas'
     | '/status'
     | '/surfaces'
+    | '/accounts/$ss58'
     | '/blocks/$ref'
+    | '/extrinsics/$hash'
     | '/providers/$slug'
     | '/subnets/$netuid'
+    | '/accounts/'
     | '/blocks/'
+    | '/extrinsics/'
     | '/providers/'
     | '/subnets/'
   fileRoutesByTo: FileRoutesByTo
@@ -182,10 +222,14 @@ export interface FileRouteTypes {
     | '/schemas'
     | '/status'
     | '/surfaces'
+    | '/accounts/$ss58'
     | '/blocks/$ref'
+    | '/extrinsics/$hash'
     | '/providers/$slug'
     | '/subnets/$netuid'
+    | '/accounts'
     | '/blocks'
+    | '/extrinsics'
     | '/providers'
     | '/subnets'
   id:
@@ -199,10 +243,14 @@ export interface FileRouteTypes {
     | '/schemas'
     | '/status'
     | '/surfaces'
+    | '/accounts/$ss58'
     | '/blocks/$ref'
+    | '/extrinsics/$hash'
     | '/providers/$slug'
     | '/subnets/$netuid'
+    | '/accounts/'
     | '/blocks/'
+    | '/extrinsics/'
     | '/providers/'
     | '/subnets/'
   fileRoutesById: FileRoutesById
@@ -217,10 +265,14 @@ export interface RootRouteChildren {
   SchemasRoute: typeof SchemasRoute
   StatusRoute: typeof StatusRoute
   SurfacesRoute: typeof SurfacesRoute
+  AccountsSs58Route: typeof AccountsSs58Route
   BlocksRefRoute: typeof BlocksRefRoute
+  ExtrinsicsHashRoute: typeof ExtrinsicsHashRoute
   ProvidersSlugRoute: typeof ProvidersSlugRoute
   SubnetsNetuidRoute: typeof SubnetsNetuidRoute
+  AccountsIndexRoute: typeof AccountsIndexRoute
   BlocksIndexRoute: typeof BlocksIndexRoute
+  ExtrinsicsIndexRoute: typeof ExtrinsicsIndexRoute
   ProvidersIndexRoute: typeof ProvidersIndexRoute
   SubnetsIndexRoute: typeof SubnetsIndexRoute
 }
@@ -304,11 +356,25 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof ProvidersIndexRouteImport
       parentRoute: typeof rootRouteImport
     }
+    '/extrinsics/': {
+      id: '/extrinsics/'
+      path: '/extrinsics'
+      fullPath: '/extrinsics/'
+      preLoaderRoute: typeof ExtrinsicsIndexRouteImport
+      parentRoute: typeof rootRouteImport
+    }
     '/blocks/': {
       id: '/blocks/'
       path: '/blocks'
       fullPath: '/blocks/'
       preLoaderRoute: typeof BlocksIndexRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/accounts/': {
+      id: '/accounts/'
+      path: '/accounts'
+      fullPath: '/accounts/'
+      preLoaderRoute: typeof AccountsIndexRouteImport
       parentRoute: typeof rootRouteImport
     }
     '/subnets/$netuid': {
@@ -325,11 +391,25 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof ProvidersSlugRouteImport
       parentRoute: typeof rootRouteImport
     }
+    '/extrinsics/$hash': {
+      id: '/extrinsics/$hash'
+      path: '/extrinsics/$hash'
+      fullPath: '/extrinsics/$hash'
+      preLoaderRoute: typeof ExtrinsicsHashRouteImport
+      parentRoute: typeof rootRouteImport
+    }
     '/blocks/$ref': {
       id: '/blocks/$ref'
       path: '/blocks/$ref'
       fullPath: '/blocks/$ref'
       preLoaderRoute: typeof BlocksRefRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/accounts/$ss58': {
+      id: '/accounts/$ss58'
+      path: '/accounts/$ss58'
+      fullPath: '/accounts/$ss58'
+      preLoaderRoute: typeof AccountsSs58RouteImport
       parentRoute: typeof rootRouteImport
     }
   }
@@ -345,10 +425,14 @@ const rootRouteChildren: RootRouteChildren = {
   SchemasRoute: SchemasRoute,
   StatusRoute: StatusRoute,
   SurfacesRoute: SurfacesRoute,
+  AccountsSs58Route: AccountsSs58Route,
   BlocksRefRoute: BlocksRefRoute,
+  ExtrinsicsHashRoute: ExtrinsicsHashRoute,
   ProvidersSlugRoute: ProvidersSlugRoute,
   SubnetsNetuidRoute: SubnetsNetuidRoute,
+  AccountsIndexRoute: AccountsIndexRoute,
   BlocksIndexRoute: BlocksIndexRoute,
+  ExtrinsicsIndexRoute: ExtrinsicsIndexRoute,
   ProvidersIndexRoute: ProvidersIndexRoute,
   SubnetsIndexRoute: SubnetsIndexRoute,
 }

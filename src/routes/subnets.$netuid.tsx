@@ -1,10 +1,9 @@
 import { createFileRoute, Link, notFound } from "@tanstack/react-router";
 import { useSuspenseQuery, useQuery } from "@tanstack/react-query";
-import { Suspense, useState } from "react";
+import { Suspense } from "react";
 import { AlertTriangle } from "lucide-react";
 import { AppShell } from "@/components/metagraphed/app-shell";
 import { CandidateChip, CurationChip, ReviewChip } from "@/components/metagraphed/chips";
-import { CopyableCode } from "@/components/metagraphed/copyable-code";
 import { ExternalLink } from "@/components/metagraphed/external-link";
 import {
   EmptyState,
@@ -25,6 +24,7 @@ import { SurfaceFixture } from "@/components/metagraphed/surface-fixture";
 import { VerifySurfaceButton } from "@/components/metagraphed/verify-surface-button";
 import { ReliabilityPanel } from "@/components/metagraphed/reliability-panel";
 import { EconomicsPanel } from "@/components/metagraphed/economics-panel";
+import { EndpointSnippet } from "@/components/metagraphed/endpoint-snippet";
 import { SubnetHistoryChart } from "@/components/metagraphed/subnet-history-chart";
 import { useHashScroll } from "@/components/metagraphed/use-hash-scroll";
 import {
@@ -33,13 +33,15 @@ import {
   subnetEndpointsQuery,
   subnetHealthQuery,
   subnetCandidatesQuery,
+  subnetEventsQuery,
   fixturesIndexQuery,
   lineageQuery,
 } from "@/lib/metagraphed/queries";
-import { API_BASE } from "@/lib/metagraphed/config";
-import { classNames, isStaleFreshness } from "@/lib/metagraphed/format";
+import { isStaleFreshness, formatNumber } from "@/lib/metagraphed/format";
+import { shortHash } from "@/lib/metagraphed/blocks";
 import { TableState } from "@/components/metagraphed/table-state";
 import type {
+  AccountEvent,
   Endpoint,
   Surface,
   Candidate,
@@ -120,6 +122,7 @@ export const Route = createFileRoute("/subnets/$netuid")({
 
 const TABS = [
   { id: "overview", label: "Overview" },
+  { id: "activity", label: "Activity" },
   { id: "surfaces", label: "Surfaces" },
   { id: "endpoints", label: "Endpoints" },
   { id: "schemas", label: "Schemas" },
@@ -223,6 +226,7 @@ function ProfileShell({ netuid }: { netuid: number }) {
 
         <div className="mt-6 min-w-0 space-y-8">
           {tab === "overview" ? <OverviewPanel netuid={netuid} profile={profile} /> : null}
+          {tab === "activity" ? <ActivityPanel netuid={netuid} /> : null}
           {tab === "surfaces" ? <SurfacesPanel netuid={netuid} /> : null}
           {tab === "endpoints" ? <EndpointsPanel netuid={netuid} /> : null}
           {tab === "schemas" ? <SchemasPanel netuid={netuid} /> : null}
@@ -416,6 +420,96 @@ function SurfacesPanel({ netuid }: { netuid: number }) {
   );
 }
 
+// On-chain activity stream (#1345): first-party SubtensorModule events for this
+// subnet, decoded direct from finney and served from /api/v1/subnets/{netuid}/events.
+function ActivityPanel({ netuid }: { netuid: number }) {
+  return (
+    <SectionAnchor
+      id="activity"
+      title="On-chain activity"
+      subtitle="First-party chain events for this subnet, newest first."
+      info="Registrations, stake, weights, axon, delegation, lifecycle, and transfers decoded directly from finney System.Events for recent finalized blocks (the rolling first-party event window) — not Taostats."
+    >
+      <QueryErrorBoundary>
+        <Suspense fallback={<Skeleton className="h-32 w-full" />}>
+          <ActivityTableLoader netuid={netuid} />
+        </Suspense>
+      </QueryErrorBoundary>
+    </SectionAnchor>
+  );
+}
+
+function ActivityTableLoader({ netuid }: { netuid: number }) {
+  const { data } = useSuspenseQuery(subnetEventsQuery(netuid));
+  const events = (data.data.events ?? []) as AccountEvent[];
+  if (events.length === 0) {
+    return (
+      <TableState
+        variant="empty"
+        title="No recent on-chain activity"
+        description="No first-party chain events are indexed for this subnet in the current window — a quiet or newly-added subnet may have none yet. Registrations, stake, weights, delegation, and transfers will appear here as they're decoded."
+        generatedAt={data.meta?.generated_at}
+      />
+    );
+  }
+  return (
+    <div className="overflow-x-auto rounded border border-border bg-card">
+      <table className="w-full text-left text-sm">
+        <thead className="bg-surface/40">
+          <tr>
+            <th className="px-4 py-2.5">Block</th>
+            <th className="px-4 py-2.5">Kind</th>
+            <th className="px-4 py-2.5">Hotkey</th>
+            <th className="px-4 py-2.5 text-right">Amount</th>
+            <th className="px-4 py-2.5 text-right">Observed</th>
+          </tr>
+        </thead>
+        <tbody className="divide-y divide-border">
+          {events.map((ev, i) => (
+            <tr key={`${ev.block_number}-${ev.event_index}-${i}`} className="hover:bg-surface/40">
+              <td className="px-4 py-2.5 font-mono text-[12px]">
+                {ev.block_number != null ? (
+                  <Link
+                    to="/blocks/$ref"
+                    params={{ ref: String(ev.block_number) }}
+                    className="text-ink hover:underline"
+                  >
+                    #{formatNumber(ev.block_number)}
+                  </Link>
+                ) : (
+                  "—"
+                )}
+              </td>
+              <td className="px-4 py-2.5 font-mono text-[11px] text-ink-strong">
+                {ev.event_kind ?? "—"}
+              </td>
+              <td className="px-4 py-2.5 font-mono text-[11px]">
+                {ev.hotkey ? (
+                  <Link
+                    to="/accounts/$ss58"
+                    params={{ ss58: ev.hotkey }}
+                    className="text-ink-muted hover:text-ink hover:underline"
+                  >
+                    {shortHash(ev.hotkey) ?? ev.hotkey}
+                  </Link>
+                ) : (
+                  "—"
+                )}
+              </td>
+              <td className="px-4 py-2.5 text-right font-mono text-[11px] tabular-nums text-ink">
+                {ev.amount_tao != null ? `${formatNumber(ev.amount_tao)} τ` : "—"}
+              </td>
+              <td className="px-4 py-2.5 text-right font-mono text-[11px] text-ink-muted">
+                <TimeAgo at={ev.observed_at} />
+              </td>
+            </tr>
+          ))}
+        </tbody>
+      </table>
+    </div>
+  );
+}
+
 function EndpointsPanel({ netuid }: { netuid: number }) {
   return (
     <SectionAnchor
@@ -527,37 +621,8 @@ function GapsPanel({ profile, compact }: { profile?: SubnetProfile; compact?: bo
   );
 }
 
-const API_SNIPPET_LANGS = [
-  { id: "url", label: "URL" },
-  { id: "curl", label: "curl" },
-  { id: "js", label: "JavaScript" },
-  { id: "python", label: "Python" },
-] as const;
-type ApiSnippetLang = (typeof API_SNIPPET_LANGS)[number]["id"];
-
-// One-liner copy snippets for a GET against a registry URL. Kept single-line so
-// they render and copy cleanly through CopyableCode.
-function shellSingleQuote(value: string): string {
-  return `'${value.replace(/'/g, `'\\''`)}'`;
-}
-
-function apiSnippet(lang: ApiSnippetLang, url: string): string {
-  switch (lang) {
-    case "curl":
-      return `curl -sS ${shellSingleQuote(url)}`;
-    case "js":
-      return `fetch(${JSON.stringify(url)}).then((r) => r.json())`;
-    case "python":
-      return `requests.get(${JSON.stringify(url)}).json()`;
-    case "url":
-    default:
-      return url;
-  }
-}
-
 function ApiPanel({ netuid }: { netuid: number }) {
-  const [lang, setLang] = useState<ApiSnippetLang>("url");
-  const rows: Array<{ label: string; path: string }> = [
+  const rows = [
     { label: "profile", path: `/api/v1/subnets/${netuid}/profile` },
     { label: "surfaces", path: `/api/v1/subnets/${netuid}/surfaces` },
     { label: "endpoints", path: `/api/v1/subnets/${netuid}/endpoints` },
@@ -572,43 +637,7 @@ function ApiPanel({ netuid }: { netuid: number }) {
       subtitle="Canonical URLs powering this profile."
       info="Pick a language and copy a ready-to-run snippet for any endpoint. /api/v1 endpoints return enveloped responses; /metagraph/*.json returns artifacts."
     >
-      <div
-        className="mb-3 inline-flex rounded border border-border bg-card p-0.5"
-        role="tablist"
-        aria-label="Snippet language"
-      >
-        {API_SNIPPET_LANGS.map((l) => (
-          <button
-            key={l.id}
-            type="button"
-            role="tab"
-            aria-selected={lang === l.id}
-            onClick={() => setLang(l.id)}
-            className={classNames(
-              "rounded px-2.5 py-1 font-mono text-[11px] uppercase tracking-wider transition-colors",
-              lang === l.id ? "bg-ink-strong text-paper" : "text-ink-muted hover:text-ink-strong",
-            )}
-          >
-            {l.label}
-          </button>
-        ))}
-      </div>
-      <div className="space-y-2">
-        {rows.map((r) => (
-          <CopyableCode
-            key={r.label}
-            label={r.label}
-            value={apiSnippet(lang, `${API_BASE}${r.path}`)}
-            truncate={false}
-            className="w-full"
-          />
-        ))}
-      </div>
-      {lang === "python" ? (
-        <p className="mt-2 font-mono text-[10px] text-ink-muted">
-          requires <code className="text-ink-strong">pip install requests</code>
-        </p>
-      ) : null}
+      <EndpointSnippet rows={rows} />
     </SectionAnchor>
   );
 }

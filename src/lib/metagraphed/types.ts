@@ -775,6 +775,66 @@ export interface Block {
   [key: string]: unknown;
 }
 
+/** One extrinsic (transaction) from /api/v1/extrinsics, newest-first. */
+export interface Extrinsic {
+  block_number: number | null;
+  extrinsic_index: number | null;
+  extrinsic_hash: string | null;
+  signer?: string | null;
+  call_module?: string | null;
+  call_function?: string | null;
+  success?: boolean | null;
+  observed_at?: string; // iso
+  [key: string]: unknown;
+}
+
+/** A hotkey's current registration on one subnet. */
+export interface AccountRegistration {
+  netuid: number | null;
+  uid: number | null;
+  stake_tao?: number | null;
+  validator_permit?: boolean;
+  active?: boolean;
+  [key: string]: unknown;
+}
+
+/** One first-party chain event for an account (newest-first). */
+export interface AccountEvent {
+  block_number: number | null;
+  event_index: number | null;
+  event_kind: string | null;
+  hotkey?: string | null;
+  coldkey?: string | null;
+  netuid?: number | null;
+  uid?: number | null;
+  amount_tao?: number | null;
+  observed_at?: string;
+  [key: string]: unknown;
+}
+
+/** Cross-subnet activity summary for one account from /api/v1/accounts/{ss58}. */
+export interface AccountSummary {
+  ss58: string;
+  event_count: number;
+  subnet_count: number;
+  first_block?: number | null;
+  last_block?: number | null;
+  first_seen_at?: string | null;
+  last_seen_at?: string | null;
+  event_kinds: Array<{ kind: string; count: number }>;
+  registrations: AccountRegistration[];
+  recent_events: AccountEvent[];
+  [key: string]: unknown;
+}
+
+/** Live TAO balance for an account from /api/v1/accounts/{ss58}/balance. */
+export interface AccountBalance {
+  ss58: string;
+  /** Free + reserved balance in TAO; null when the RPC lookup failed. */
+  balance_tao: number | null;
+  queried_at?: string | null;
+}
+
 /** Per-subnet on-chain economics from /api/v1/economics. */
 export interface SubnetEconomics {
   netuid: number;

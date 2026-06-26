@@ -2,12 +2,19 @@ import { queryOptions, infiniteQueryOptions } from "@tanstack/react-query";
 import { apiFetch, type ApiResult, type QueryParams } from "./client";
 import { getNetwork } from "./config";
 import { blockRefPathSegment } from "./blocks";
+import { extrinsicHashPathSegment } from "./extrinsics";
+import { ss58PathSegment } from "./accounts";
 import { isSchemaDrift, normalizeDriftStatus } from "./schema-drift";
 import type {
   AdapterSnapshot,
   AgentResource,
   AgentResources,
+  AccountBalance,
+  AccountEvent,
+  AccountRegistration,
+  AccountSummary,
   Block,
+  Extrinsic,
   Candidate,
   Compare,
   CompareSubnet,
@@ -73,6 +80,7 @@ const MAX_HISTORY_POINTS = 400;
 const MAX_UPTIME_SURFACES = 500;
 const MAX_UPTIME_DAYS = 366;
 const MAX_HEALTH_TREND_SURFACES = 500;
+const MAX_ACCOUNT_EVENTS = 100;
 
 function coerceFiniteNumber(value: unknown): number | undefined {
   if (typeof value === "number" && Number.isFinite(value)) return value;
@@ -821,6 +829,180 @@ export const blockQuery = (ref: string) =>
     staleTime: STALE_SHORT,
   });
 
+// Extrinsic (transaction) explorer — the block explorer's sibling feed. The list
+// is offset-paginated and newest-first; the detail is keyed by 0x extrinsic_hash.
+function normalizeExtrinsic(raw: unknown): Extrinsic | null {
+  if (!isRecord(raw)) return null;
+  const blockNumber = firstFiniteNumber(raw.block_number);
+  const extrinsicHash = firstString(raw.extrinsic_hash);
+  // A row needs at least a hash or a (block, index) coordinate to key/link on.
+  const extrinsicIndex = firstFiniteNumber(raw.extrinsic_index);
+  if (!extrinsicHash && (blockNumber == null || extrinsicIndex == null)) {
+    return null;
+  }
+  return {
+    ...(raw as object),
+    block_number: blockNumber ?? null,
+    extrinsic_index: extrinsicIndex ?? null,
+    extrinsic_hash: extrinsicHash ?? null,
+    signer: firstString(raw.signer) ?? null,
+    call_module: firstString(raw.call_module) ?? null,
+    call_function: firstString(raw.call_function) ?? null,
+    success: typeof raw.success === "boolean" ? raw.success : null,
+    observed_at: firstString(raw.observed_at),
+  } as Extrinsic;
+}
+
+/** Recent extrinsics feed — newest first, offset-paginated (limit ≤ 100). */
+export const extrinsicsQuery = (params?: QueryParams) =>
+  queryOptions({
+    queryKey: k("extrinsics", params ?? {}),
+    queryFn: async ({ signal }) => {
+      const res = await fetchList<unknown>("/api/v1/extrinsics", "extrinsics", params, signal);
+      const data = res.data.flatMap((row) => {
+        const x = normalizeExtrinsic(row);
+        return x ? [x] : [];
+      });
+      return { ...res, data } as ApiResult<Extrinsic[]>;
+    },
+    // Extrinsics turn over with every block once the poller is live.
+    staleTime: STALE_SHORT,
+  });
+
+/** Single extrinsic by 0x extrinsic_hash. `null` when unknown/cold. */
+export const extrinsicQuery = (hash: string) =>
+  queryOptions({
+    queryKey: k("extrinsic", hash),
+    queryFn: async ({ signal }) => {
+      const res = await fetchDetail<unknown>(
+        `/api/v1/extrinsics/${extrinsicHashPathSegment(hash)}`,
+        "extrinsic",
+        signal,
+      );
+      return {
+        ...res,
+        data: normalizeExtrinsic(res.data),
+      } as ApiResult<Extrinsic | null>;
+    },
+    staleTime: STALE_SHORT,
+  });
+
+// Account explorer — cross-subnet activity for one hotkey/coldkey ss58. The
+// /api/v1/accounts/{ss58} summary bundles the aggregate, registrations, and a
+// recent-events sample (schema-stable zero for a cold/unknown account, never an
+// error), so one query drives the whole detail page.
+
+function accountEventString(value: unknown): string | undefined {
+  if (typeof value === "string") return value.trim() ? value : undefined;
+  if (typeof value === "number" || typeof value === "boolean") return String(value);
+  return undefined;
+}
+
+export function normalizeAccountEvent(raw: unknown): AccountEvent | null {
+  if (!isRecord(raw)) return null;
+
+  const blockNumber = coerceFiniteNumber(raw.block_number);
+  const eventIndex = coerceFiniteNumber(raw.event_index);
+  const eventKind = accountEventString(raw.event_kind);
+
+  if (blockNumber == null || eventIndex == null || !eventKind) return null;
+
+  return {
+    ...raw,
+    block_number: blockNumber,
+    event_index: eventIndex,
+    event_kind: eventKind,
+    hotkey: accountEventString(raw.hotkey) ?? null,
+    coldkey: accountEventString(raw.coldkey) ?? null,
+    netuid: coerceFiniteNumber(raw.netuid) ?? null,
+    uid: coerceFiniteNumber(raw.uid) ?? null,
+    amount_tao: coerceFiniteNumber(raw.amount_tao) ?? null,
+    observed_at: accountEventString(raw.observed_at),
+  };
+}
+
+function normalizeAccountEvents(raw: unknown, limit = MAX_ACCOUNT_EVENTS): AccountEvent[] {
+  if (!Array.isArray(raw)) return [];
+  return raw
+    .flatMap((event) => {
+      const normalized = normalizeAccountEvent(event);
+      return normalized ? [normalized] : [];
+    })
+    .slice(0, limit);
+}
+
+function normalizeAccountSummary(raw: unknown, ss58: string): AccountSummary {
+  const d = isRecord(raw) ? raw : {};
+  const eventKinds = Array.isArray(d.event_kinds)
+    ? d.event_kinds
+        .filter(isRecord)
+        .map((kind) => ({
+          kind: firstString(kind.kind) ?? "",
+          count: firstFiniteNumber(kind.count) ?? 0,
+        }))
+        .filter((kind) => kind.kind)
+    : [];
+  return {
+    ...(d as object),
+    ss58: firstString(d.ss58) ?? ss58,
+    event_count: firstFiniteNumber(d.event_count) ?? 0,
+    subnet_count: firstFiniteNumber(d.subnet_count) ?? 0,
+    first_block: firstFiniteNumber(d.first_block) ?? null,
+    last_block: firstFiniteNumber(d.last_block) ?? null,
+    first_seen_at: firstString(d.first_seen_at) ?? null,
+    last_seen_at: firstString(d.last_seen_at) ?? null,
+    event_kinds: eventKinds,
+    registrations: Array.isArray(d.registrations)
+      ? (d.registrations.filter(isRecord) as AccountRegistration[])
+      : [],
+    recent_events: normalizeAccountEvents(d.recent_events),
+  } as AccountSummary;
+}
+
+/** Cross-subnet activity summary for one account by ss58. */
+export const accountQuery = (ss58: string) =>
+  queryOptions({
+    queryKey: k("account", ss58),
+    queryFn: async ({ signal }) => {
+      const res = await apiFetch<unknown>(`/api/v1/accounts/${ss58PathSegment(ss58)}`, {
+        signal,
+      });
+      return {
+        data: normalizeAccountSummary(res.data, ss58),
+        meta: res.meta,
+        url: res.url,
+      } as ApiResult<AccountSummary>;
+    },
+    staleTime: STALE_SHORT,
+  });
+
+/**
+ * Live TAO balance (free + reserved) for one account, queried from the finney
+ * RPC at request time (60s server-side KV cache). Separate from accountQuery so
+ * a slow/failed RPC never blocks the rest of the entity page; balance_tao is
+ * null on RPC failure.
+ */
+export const accountBalanceQuery = (ss58: string) =>
+  queryOptions({
+    queryKey: k("account-balance", ss58),
+    queryFn: async ({ signal }) => {
+      const res = await apiFetch<unknown>(`/api/v1/accounts/${ss58PathSegment(ss58)}/balance`, {
+        signal,
+      });
+      const d = isRecord(res.data) ? res.data : {};
+      return {
+        data: {
+          ss58: firstString(d.ss58) ?? ss58,
+          balance_tao: firstFiniteNumber(d.balance_tao) ?? null,
+          queried_at: firstString(d.queried_at) ?? null,
+        } as AccountBalance,
+        meta: res.meta,
+        url: res.url,
+      } as ApiResult<AccountBalance>;
+    },
+    staleTime: STALE_SHORT,
+  });
+
 const READINESS_COMPONENT_KEYS = [
   "has_callable_api",
   "callable_now",
@@ -1040,6 +1222,35 @@ export const subnetHealthQuery = (netuid: number) =>
       const summary = (d.summary as Record<string, unknown> | undefined) ?? {};
       const merged = normalizeHealthBlock({ ...d, ...summary });
       return { data: merged, meta: res.meta, url: res.url };
+    },
+    staleTime: STALE_SHORT,
+  });
+
+/**
+ * First-party chain-event stream for one subnet (#1345 block explorer):
+ * registrations, stake, weights, axon, delegation, lifecycle, transfers —
+ * newest first, from the account_events tier filtered by netuid. Schema-stable
+ * zero for a cold/unknown subnet.
+ */
+export const subnetEventsQuery = (netuid: number) =>
+  queryOptions({
+    queryKey: k("subnet-events", netuid),
+    queryFn: async ({ signal }) => {
+      const res = await apiFetch<Record<string, unknown>>(
+        `/api/v1/subnets/${netuid}/events?limit=100`,
+        { signal },
+      );
+      const d = (res.data ?? {}) as Record<string, unknown>;
+      const events = normalizeAccountEvents(d.events);
+      return {
+        data: {
+          netuid,
+          event_count: firstFiniteNumber(d.event_count) ?? events.length,
+          events,
+        },
+        meta: res.meta,
+        url: res.url,
+      };
     },
     staleTime: STALE_SHORT,
   });

@@ -72,6 +72,8 @@ export const MEGA_PANELS: MegaPanel[] = [
     browse: [
       { to: "/blocks", label: "Recent blocks", hint: "Newest first" },
       { to: "/blocks", search: { limit: "100" }, label: "100 per page" },
+      { to: "/extrinsics", label: "Extrinsics", hint: "Transactions, newest first" },
+      { to: "/accounts", label: "Accounts", hint: "Hotkey / coldkey lookup" },
     ],
     filters: [],
   },
