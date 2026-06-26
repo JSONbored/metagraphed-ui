@@ -342,15 +342,9 @@ describe("normalizeGap", () => {
       gaps: { missing_kinds: ["openapi", "docs", "dashboard"] },
     };
 
-    expect(normalizeGap({ ...fallbackPayload, gap_severity: "unknown" }).severity).toBe(
-      "high",
-    );
-    expect(normalizeGap({ ...fallbackPayload, gap_severity: "__proto__" }).severity).toBe(
-      "high",
-    );
-    expect(normalizeGap({ ...fallbackPayload, gap_severity: "constructor" }).severity).toBe(
-      "high",
-    );
+    expect(normalizeGap({ ...fallbackPayload, gap_severity: "unknown" }).severity).toBe("high");
+    expect(normalizeGap({ ...fallbackPayload, gap_severity: "__proto__" }).severity).toBe("high");
+    expect(normalizeGap({ ...fallbackPayload, gap_severity: "constructor" }).severity).toBe("high");
     expect(normalizeGap({ ...fallbackPayload, gap_severity: 123 }).severity).toBe("high");
   });
 
