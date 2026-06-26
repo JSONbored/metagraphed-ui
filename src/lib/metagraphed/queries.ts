@@ -9,6 +9,7 @@ import type {
   AdapterSnapshot,
   AgentResource,
   AgentResources,
+  AccountBalance,
   AccountEvent,
   AccountRegistration,
   AccountSummary,
@@ -79,8 +80,8 @@ const MAX_HISTORY_POINTS = 400;
 const MAX_UPTIME_SURFACES = 500;
 const MAX_UPTIME_DAYS = 366;
 const MAX_HEALTH_TREND_SURFACES = 500;
+const MAX_ACCOUNT_EVENTS = 100;
 const MAX_ACCOUNT_REGISTRATIONS = 100;
-const MAX_ACCOUNT_RECENT_EVENTS = 100;
 
 function coerceFiniteNumber(value: unknown): number | undefined {
   if (typeof value === "number" && Number.isFinite(value)) return value;
@@ -904,21 +905,43 @@ function normalizeAccountRegistration(raw: unknown): AccountRegistration | null 
   return registration.netuid != null || registration.uid != null ? registration : null;
 }
 
-function normalizeAccountEvent(raw: unknown): AccountEvent | null {
+function accountEventString(value: unknown): string | undefined {
+  if (typeof value === "string") return value.trim() ? value : undefined;
+  if (typeof value === "number" || typeof value === "boolean") return String(value);
+  return undefined;
+}
+
+export function normalizeAccountEvent(raw: unknown): AccountEvent | null {
   if (!isRecord(raw)) return null;
-  const event: AccountEvent = {
-    ...(raw as object),
-    block_number: firstFiniteNumber(raw.block_number) ?? null,
-    event_index: firstFiniteNumber(raw.event_index) ?? null,
-    event_kind: firstString(raw.event_kind) ?? null,
-    hotkey: firstString(raw.hotkey) ?? null,
-    coldkey: firstString(raw.coldkey) ?? null,
-    netuid: firstFiniteNumber(raw.netuid) ?? null,
-    uid: firstFiniteNumber(raw.uid) ?? null,
-    amount_tao: firstFiniteNumber(raw.amount_tao) ?? null,
-    observed_at: firstString(raw.observed_at),
+
+  const blockNumber = coerceFiniteNumber(raw.block_number);
+  const eventIndex = coerceFiniteNumber(raw.event_index);
+  const eventKind = accountEventString(raw.event_kind);
+
+  if (blockNumber == null || eventIndex == null || !eventKind) return null;
+
+  return {
+    ...raw,
+    block_number: blockNumber,
+    event_index: eventIndex,
+    event_kind: eventKind,
+    hotkey: accountEventString(raw.hotkey) ?? null,
+    coldkey: accountEventString(raw.coldkey) ?? null,
+    netuid: coerceFiniteNumber(raw.netuid) ?? null,
+    uid: coerceFiniteNumber(raw.uid) ?? null,
+    amount_tao: coerceFiniteNumber(raw.amount_tao) ?? null,
+    observed_at: accountEventString(raw.observed_at),
   };
-  return event.block_number != null || event.event_kind != null ? event : null;
+}
+
+function normalizeAccountEvents(raw: unknown, limit = MAX_ACCOUNT_EVENTS): AccountEvent[] {
+  if (!Array.isArray(raw)) return [];
+  return raw
+    .flatMap((event) => {
+      const normalized = normalizeAccountEvent(event);
+      return normalized ? [normalized] : [];
+    })
+    .slice(0, limit);
 }
 
 export function normalizeAccountSummary(raw: unknown, ss58: string): AccountSummary {
@@ -943,21 +966,12 @@ export function normalizeAccountSummary(raw: unknown, ss58: string): AccountSumm
     last_seen_at: firstString(d.last_seen_at) ?? null,
     event_kinds: eventKinds,
     registrations: Array.isArray(d.registrations)
-      ? d.registrations
-          .slice(0, MAX_ACCOUNT_REGISTRATIONS)
-          .flatMap((registration) => {
-            const normalized = normalizeAccountRegistration(registration);
-            return normalized ? [normalized] : [];
-          })
+      ? d.registrations.slice(0, MAX_ACCOUNT_REGISTRATIONS).flatMap((registration) => {
+          const normalized = normalizeAccountRegistration(registration);
+          return normalized ? [normalized] : [];
+        })
       : [],
-    recent_events: Array.isArray(d.recent_events)
-      ? d.recent_events
-          .slice(0, MAX_ACCOUNT_RECENT_EVENTS)
-          .flatMap((event) => {
-            const normalized = normalizeAccountEvent(event);
-            return normalized ? [normalized] : [];
-          })
-      : [],
+    recent_events: normalizeAccountEvents(d.recent_events),
   } as AccountSummary;
 }
 
@@ -974,6 +988,33 @@ export const accountQuery = (ss58: string) =>
         meta: res.meta,
         url: res.url,
       } as ApiResult<AccountSummary>;
+    },
+    staleTime: STALE_SHORT,
+  });
+
+/**
+ * Live TAO balance (free + reserved) for one account, queried from the finney
+ * RPC at request time (60s server-side KV cache). Separate from accountQuery so
+ * a slow/failed RPC never blocks the rest of the entity page; balance_tao is
+ * null on RPC failure.
+ */
+export const accountBalanceQuery = (ss58: string) =>
+  queryOptions({
+    queryKey: k("account-balance", ss58),
+    queryFn: async ({ signal }) => {
+      const res = await apiFetch<unknown>(`/api/v1/accounts/${ss58PathSegment(ss58)}/balance`, {
+        signal,
+      });
+      const d = isRecord(res.data) ? res.data : {};
+      return {
+        data: {
+          ss58: firstString(d.ss58) ?? ss58,
+          balance_tao: firstFiniteNumber(d.balance_tao) ?? null,
+          queried_at: firstString(d.queried_at) ?? null,
+        } as AccountBalance,
+        meta: res.meta,
+        url: res.url,
+      } as ApiResult<AccountBalance>;
     },
     staleTime: STALE_SHORT,
   });
@@ -1197,6 +1238,35 @@ export const subnetHealthQuery = (netuid: number) =>
       const summary = (d.summary as Record<string, unknown> | undefined) ?? {};
       const merged = normalizeHealthBlock({ ...d, ...summary });
       return { data: merged, meta: res.meta, url: res.url };
+    },
+    staleTime: STALE_SHORT,
+  });
+
+/**
+ * First-party chain-event stream for one subnet (#1345 block explorer):
+ * registrations, stake, weights, axon, delegation, lifecycle, transfers —
+ * newest first, from the account_events tier filtered by netuid. Schema-stable
+ * zero for a cold/unknown subnet.
+ */
+export const subnetEventsQuery = (netuid: number) =>
+  queryOptions({
+    queryKey: k("subnet-events", netuid),
+    queryFn: async ({ signal }) => {
+      const res = await apiFetch<Record<string, unknown>>(
+        `/api/v1/subnets/${netuid}/events?limit=100`,
+        { signal },
+      );
+      const d = (res.data ?? {}) as Record<string, unknown>;
+      const events = normalizeAccountEvents(d.events);
+      return {
+        data: {
+          netuid,
+          event_count: firstFiniteNumber(d.event_count) ?? events.length,
+          events,
+        },
+        meta: res.meta,
+        url: res.url,
+      };
     },
     staleTime: STALE_SHORT,
   });

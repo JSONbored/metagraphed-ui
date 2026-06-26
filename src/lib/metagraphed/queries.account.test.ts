@@ -2,7 +2,7 @@ import { describe, expect, it } from "vitest";
 import { normalizeAccountSummary } from "./queries";
 
 describe("normalizeAccountSummary", () => {
-  it("normalizes nested account rows before rendering consumes them", () => {
+  it("normalizes nested registration rows and drops malformed events", () => {
     const summary = normalizeAccountSummary(
       {
         ss58: "5valid",
@@ -18,13 +18,19 @@ describe("normalizeAccountSummary", () => {
           },
         ],
         recent_events: [
+          // Well-formed row: primitive fields are coerced before render.
+          {
+            block_number: "123",
+            event_index: 4,
+            event_kind: "Transfer",
+            netuid: "7",
+            amount_tao: "1.5",
+          },
+          // Object-valued render fields → dropped by the strict normalizer (#261).
           {
             block_number: 123,
             event_index: { attacker: true },
             event_kind: { attacker: true },
-            netuid: { attacker: true },
-            amount_tao: { attacker: true },
-            observed_at: { attacker: true },
           },
         ],
       },
@@ -43,13 +49,13 @@ describe("normalizeAccountSummary", () => {
     expect(summary.recent_events).toEqual([
       {
         block_number: 123,
-        event_index: null,
-        event_kind: null,
+        event_index: 4,
+        event_kind: "Transfer",
         hotkey: null,
         coldkey: null,
-        netuid: null,
+        netuid: 7,
         uid: null,
-        amount_tao: null,
+        amount_tao: 1.5,
         observed_at: undefined,
       },
     ]);
@@ -59,6 +65,7 @@ describe("normalizeAccountSummary", () => {
     const oversizedRegistrations = Array.from({ length: 150 }, (_, uid) => ({ netuid: 1, uid }));
     const oversizedEvents = Array.from({ length: 150 }, (_, block) => ({
       block_number: block,
+      event_index: block,
       event_kind: "Transfer",
     }));
 
