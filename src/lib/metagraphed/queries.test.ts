@@ -9,6 +9,7 @@ import {
   normalizeSurfaceSla,
   flattenSurfaceIncidents,
   normalizeProvider,
+  normalizeAccountEvent,
 } from "./queries";
 
 // These tests lock the canonical-only reads after #1756 collapsed the redundant
@@ -16,6 +17,45 @@ import {
 // served by /api/v1/subnets, /subnets/{n}/profile, /gaps, /compare as of the PR)
 // plus the edge cases #226 (stringArrayFromUnknown) and #1757 (null timestamps)
 // guard. A future API regression that drops a canonical field is caught here.
+
+describe("normalizeAccountEvent", () => {
+  it("normalizes primitive event fields before rendering", () => {
+    const out = normalizeAccountEvent({
+      block_number: "123",
+      event_index: 4,
+      event_kind: 99,
+      hotkey: true,
+      coldkey: "cold",
+      netuid: "7",
+      uid: "42",
+      amount_tao: "1.5",
+      observed_at: "2026-06-24T18:44:00Z",
+    });
+
+    expect(out).toMatchObject({
+      block_number: 123,
+      event_index: 4,
+      event_kind: "99",
+      hotkey: "true",
+      coldkey: "cold",
+      netuid: 7,
+      uid: 42,
+      amount_tao: 1.5,
+      observed_at: "2026-06-24T18:44:00Z",
+    });
+  });
+
+  it("drops malformed events with object-valued render fields", () => {
+    expect(
+      normalizeAccountEvent({
+        block_number: 123,
+        event_index: 0,
+        event_kind: { object_child: true },
+        hotkey: { not: "a string" },
+      }),
+    ).toBeNull();
+  });
+});
 
 describe("normalizeSubnet", () => {
   // Mirrors a real /api/v1/subnets list row: the API serves the canonical
@@ -389,6 +429,18 @@ describe("normalizeGap", () => {
       gaps: { missing_kinds: ["openapi", "docs", "dashboard"] },
     });
     expect(out.severity).toBe("high");
+  });
+
+  it("falls back for unrecognized or prototype gap_severity values", () => {
+    const fallbackPayload = {
+      netuid: 8,
+      gaps: { missing_kinds: ["openapi", "docs", "dashboard"] },
+    };
+
+    expect(normalizeGap({ ...fallbackPayload, gap_severity: "unknown" }).severity).toBe("high");
+    expect(normalizeGap({ ...fallbackPayload, gap_severity: "__proto__" }).severity).toBe("high");
+    expect(normalizeGap({ ...fallbackPayload, gap_severity: "constructor" }).severity).toBe("high");
+    expect(normalizeGap({ ...fallbackPayload, gap_severity: 123 }).severity).toBe("high");
   });
 
   it("threads gap_priority through to the returned Gap", () => {
