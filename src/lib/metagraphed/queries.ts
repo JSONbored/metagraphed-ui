@@ -81,6 +81,8 @@ const MAX_HISTORY_POINTS = 400;
 const MAX_UPTIME_SURFACES = 500;
 const MAX_UPTIME_DAYS = 366;
 const MAX_HEALTH_TREND_SURFACES = 500;
+const MAX_ACCOUNT_EVENTS = 100;
+const MAX_ACCOUNT_REGISTRATIONS = 100;
 
 function coerceFiniteNumber(value: unknown): number | undefined {
   if (typeof value === "number" && Number.isFinite(value)) return value;
@@ -935,7 +937,59 @@ export const extrinsicQuery = (hash: string) =>
 // /api/v1/accounts/{ss58} summary bundles the aggregate, registrations, and a
 // recent-events sample (schema-stable zero for a cold/unknown account, never an
 // error), so one query drives the whole detail page.
-function normalizeAccountSummary(raw: unknown, ss58: string): AccountSummary {
+function normalizeAccountRegistration(raw: unknown): AccountRegistration | null {
+  if (!isRecord(raw)) return null;
+  const registration: AccountRegistration = {
+    ...(raw as object),
+    netuid: firstFiniteNumber(raw.netuid) ?? null,
+    uid: firstFiniteNumber(raw.uid) ?? null,
+    stake_tao: firstFiniteNumber(raw.stake_tao) ?? null,
+    validator_permit: booleanValue(raw.validator_permit),
+    active: booleanValue(raw.active),
+  };
+  return registration.netuid != null || registration.uid != null ? registration : null;
+}
+
+function accountEventString(value: unknown): string | undefined {
+  if (typeof value === "string") return value.trim() ? value : undefined;
+  if (typeof value === "number" || typeof value === "boolean") return String(value);
+  return undefined;
+}
+
+export function normalizeAccountEvent(raw: unknown): AccountEvent | null {
+  if (!isRecord(raw)) return null;
+
+  const blockNumber = coerceFiniteNumber(raw.block_number);
+  const eventIndex = coerceFiniteNumber(raw.event_index);
+  const eventKind = accountEventString(raw.event_kind);
+
+  if (blockNumber == null || eventIndex == null || !eventKind) return null;
+
+  return {
+    ...raw,
+    block_number: blockNumber,
+    event_index: eventIndex,
+    event_kind: eventKind,
+    hotkey: accountEventString(raw.hotkey) ?? null,
+    coldkey: accountEventString(raw.coldkey) ?? null,
+    netuid: coerceFiniteNumber(raw.netuid) ?? null,
+    uid: coerceFiniteNumber(raw.uid) ?? null,
+    amount_tao: coerceFiniteNumber(raw.amount_tao) ?? null,
+    observed_at: accountEventString(raw.observed_at),
+  };
+}
+
+function normalizeAccountEvents(raw: unknown, limit = MAX_ACCOUNT_EVENTS): AccountEvent[] {
+  if (!Array.isArray(raw)) return [];
+  return raw
+    .flatMap((event) => {
+      const normalized = normalizeAccountEvent(event);
+      return normalized ? [normalized] : [];
+    })
+    .slice(0, limit);
+}
+
+export function normalizeAccountSummary(raw: unknown, ss58: string): AccountSummary {
   const d = isRecord(raw) ? raw : {};
   const eventKinds = Array.isArray(d.event_kinds)
     ? d.event_kinds
@@ -957,11 +1011,12 @@ function normalizeAccountSummary(raw: unknown, ss58: string): AccountSummary {
     last_seen_at: firstString(d.last_seen_at) ?? null,
     event_kinds: eventKinds,
     registrations: Array.isArray(d.registrations)
-      ? (d.registrations.filter(isRecord) as AccountRegistration[])
+      ? d.registrations.slice(0, MAX_ACCOUNT_REGISTRATIONS).flatMap((registration) => {
+          const normalized = normalizeAccountRegistration(registration);
+          return normalized ? [normalized] : [];
+        })
       : [],
-    recent_events: Array.isArray(d.recent_events)
-      ? (d.recent_events.filter(isRecord) as AccountEvent[])
-      : [],
+    recent_events: normalizeAccountEvents(d.recent_events),
   } as AccountSummary;
 }
 
@@ -1247,7 +1302,7 @@ export const subnetEventsQuery = (netuid: number) =>
         { signal },
       );
       const d = (res.data ?? {}) as Record<string, unknown>;
-      const events = Array.isArray(d.events) ? (d.events.filter(isRecord) as AccountEvent[]) : [];
+      const events = normalizeAccountEvents(d.events);
       return {
         data: {
           netuid,
@@ -2332,11 +2387,18 @@ function stringArrayFromUnknown(value: unknown): string[] {
   });
 }
 
-const GAP_SEVERITY_MAP: Record<string, Gap["severity"]> = {
+const GAP_SEVERITY_MAP = {
   critical: "high",
   warning: "medium",
   info: "low",
-};
+} satisfies Record<string, Gap["severity"]>;
+
+function gapSeverityFromUnknown(value: unknown, fallback: Gap["severity"]): Gap["severity"] {
+  if (typeof value !== "string") return fallback;
+  return Object.hasOwn(GAP_SEVERITY_MAP, value)
+    ? GAP_SEVERITY_MAP[value as keyof typeof GAP_SEVERITY_MAP]
+    : fallback;
+}
 
 export function normalizeGap(raw: unknown): Gap {
   const r = (raw ?? {}) as Record<string, unknown>;
@@ -2348,7 +2410,7 @@ export function normalizeGap(raw: unknown): Gap {
   const core = missing.filter((kind) => kind === "openapi" || kind === "subnet-api").length;
   const severityFallback: Gap["severity"] =
     core >= 1 && missing.length >= 3 ? "high" : missing.length >= 2 ? "medium" : "low";
-  const severity = GAP_SEVERITY_MAP[r.gap_severity as string] ?? severityFallback;
+  const severity = gapSeverityFromUnknown(r.gap_severity, severityFallback);
   return {
     id: (r.slug as string) ?? `gap-${netuid}`,
     netuid,
