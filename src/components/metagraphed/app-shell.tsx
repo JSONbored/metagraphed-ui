@@ -3,7 +3,7 @@ import type { ReactNode } from "react";
 import { useEffect, useMemo, useState } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { ChevronRight, Compass, Github, Menu, X } from "lucide-react";
-import { API_BASE, DISCORD_URL, GITHUB_REPO } from "@/lib/metagraphed/config";
+import { API_BASE, DEFAULT_DISCORD_URL, DISCORD_URL, GITHUB_REPO } from "@/lib/metagraphed/config";
 import { useApiBase } from "@/hooks/use-api-base";
 import { NetworkSwitcher } from "./network-switcher";
 import { CopyableCode } from "./copyable-code";
@@ -57,6 +57,7 @@ export function AppShell({ children }: { children: ReactNode }) {
   const [paletteOpen, setPaletteOpen] = useState(false);
   const [scrolled, setScrolled] = useState(false);
   const crumbs = useMemo(() => buildCrumbs(pathname), [pathname]);
+  const discordUrl = safeExternalUrl(DISCORD_URL) ?? DEFAULT_DISCORD_URL;
 
   // Close mobile sheet on route change
   useEffect(() => {
@@ -152,7 +153,7 @@ export function AppShell({ children }: { children: ReactNode }) {
                 <Tooltip>
                   <TooltipTrigger asChild>
                     <a
-                      href={DISCORD_URL}
+                      href={discordUrl}
                       target="_blank"
                       rel="noopener noreferrer"
                       aria-label="Discord community"
@@ -260,6 +261,8 @@ function ApiBaseRow() {
 }
 
 function SiteFooter() {
+  const discordUrl = safeExternalUrl(DISCORD_URL) ?? DEFAULT_DISCORD_URL;
+
   return (
     <footer className="mt-24 border-t border-border bg-surface/30 relative overflow-hidden">
       <div
@@ -321,7 +324,7 @@ function SiteFooter() {
             <Github className="size-3" /> GitHub
           </a>
           <a
-            href={DISCORD_URL}
+            href={discordUrl}
             target="_blank"
             rel="noopener noreferrer"
             className="hover:text-ink-strong transition-colors inline-flex items-center gap-1"

@@ -184,4 +184,6 @@ export function onNetworkChange(cb: (next: ChainNetwork) => void): () => void {
 
 export const GITHUB_REPO = env?.VITE_METAGRAPHED_REPO || "https://github.com/JSONbored/metagraphed";
 
-export const DISCORD_URL = env?.VITE_METAGRAPHED_DISCORD || "https://discord.gg/nj9m9yVDnb";
+export const DEFAULT_DISCORD_URL = "https://discord.gg/nj9m9yVDnb";
+
+export const DISCORD_URL = env?.VITE_METAGRAPHED_DISCORD || DEFAULT_DISCORD_URL;
