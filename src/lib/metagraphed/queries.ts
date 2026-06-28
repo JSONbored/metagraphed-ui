@@ -9,6 +9,24 @@ import type {
   AdapterSnapshot,
   AgentResource,
   AgentResources,
+  AgentCatalogSummary,
+  AgentCatalogDetail,
+  AgentCatalogService,
+  AgentReadiness,
+  AgentCatalogBlocker,
+  BulkHealthTrends,
+  BulkHealthTrendSubnet,
+  BulkHealthTrendPoint,
+  HealthTrendDay,
+  RegistrySummary,
+  RegistrySummaryTopSubnet,
+  CoverageDepth,
+  CoverageDepthRow,
+  CoverageDepthQueueRow,
+  HealthHistory,
+  HealthHistorySurface,
+  SourceHealth,
+  SourceHealthProvider,
   AccountBalance,
   AccountDay,
   AccountEvent,
@@ -754,6 +772,586 @@ export const sourceHealthQuery = () =>
         } as { name: string; ok?: boolean; last_seen?: string };
       });
       return { data: rows, meta: res.meta, url: res.url };
+    },
+    staleTime: STALE_MED,
+  });
+
+/* ===================== Theme C: registry & network-health depth ===================== */
+
+// /api/v1/health/trends — BULK per-day health trend artifact (windows[range].subnets[].points[]).
+// This is the REAL daily series; the per-subnet subnetHealthTrendsQuery is a different
+// (surface-aggregate, no points[]) shape and must NOT be reused here.
+function normalizeBulkTrendPoint(raw: unknown): BulkHealthTrendPoint | null {
+  if (!isPlainRecord(raw)) return null;
+  const date = coerceString(raw.date);
+  if (!date) return null;
+  const uptime = raw.uptime_ratio;
+  const latency = raw.avg_latency_ms;
+  return {
+    date,
+    samples: optionalNumber(raw.samples),
+    uptime_ratio: uptime == null ? null : optionalNumber(uptime),
+    avg_latency_ms: latency == null ? null : optionalNumber(latency),
+    latency_sample_count: optionalNumber(raw.latency_sample_count),
+  };
+}
+
+function normalizeBulkTrendSubnet(raw: unknown): BulkHealthTrendSubnet | null {
+  if (!isPlainRecord(raw)) return null;
+  const netuid = optionalNumber(raw.netuid);
+  if (netuid == null) return null;
+  const points = Array.isArray(raw.points)
+    ? raw.points
+        .slice(0, MAX_HEALTH_TREND_SURFACES)
+        .map(normalizeBulkTrendPoint)
+        .filter((p): p is BulkHealthTrendPoint => p !== null)
+    : [];
+  return {
+    netuid,
+    samples: optionalNumber(raw.samples),
+    uptime_ratio: optionalNumber(raw.uptime_ratio),
+    avg_latency_ms: optionalNumber(raw.avg_latency_ms),
+    latency_sample_count: optionalNumber(raw.latency_sample_count),
+    points,
+  };
+}
+
+function normalizeBulkHealthTrends(raw: unknown): BulkHealthTrends {
+  const d = isPlainRecord(raw) ? raw : {};
+  const windowsRaw = isPlainRecord(d.windows) ? d.windows : {};
+  const windows: BulkHealthTrends["windows"] = {};
+  for (const [range, value] of Object.entries(windowsRaw)) {
+    if (!isPlainRecord(value)) continue;
+    const subnets = Array.isArray(value.subnets)
+      ? value.subnets
+          .map(normalizeBulkTrendSubnet)
+          .filter((s): s is BulkHealthTrendSubnet => s !== null)
+      : [];
+    windows[range] = {
+      days: optionalNumber(value.days),
+      granularity: coerceString(value.granularity),
+      subnet_count: optionalNumber(value.subnet_count),
+      subnets,
+    };
+  }
+  return {
+    observed_at: coerceString(d.observed_at),
+    schema_version: optionalNumber(d.schema_version),
+    source: coerceString(d.source),
+    windows,
+  };
+}
+
+export const bulkHealthTrendsQuery = () =>
+  queryOptions({
+    queryKey: k("bulk-health-trends"),
+    queryFn: async ({ signal }) => {
+      const res = await apiFetch<unknown>("/api/v1/health/trends", { signal });
+      return {
+        data: normalizeBulkHealthTrends(res.data),
+        meta: res.meta,
+        url: res.url,
+      } as ApiResult<BulkHealthTrends>;
+    },
+    staleTime: STALE_MED,
+  });
+
+/**
+ * Collapse all subnets' per-day points[] in one window into a single
+ * sample-weighted per-day uptime series, oldest→newest. The weighting is by
+ * `samples` so a high-traffic subnet's day isn't outvoted by a sparsely-probed
+ * one. Days with no usable samples are skipped (no fabricated zeros).
+ */
+export function bulkTrendDays(window: BulkHealthTrendWindowLike | undefined): HealthTrendDay[] {
+  if (!window) return [];
+  const byDate = new Map<string, { upWeighted: number; samples: number; subnets: number }>();
+  for (const sn of window.subnets ?? []) {
+    for (const p of sn.points ?? []) {
+      const ratio = p.uptime_ratio;
+      if (ratio == null || !Number.isFinite(ratio)) continue;
+      const samples = typeof p.samples === "number" && p.samples > 0 ? p.samples : 1;
+      const entry = byDate.get(p.date) ?? { upWeighted: 0, samples: 0, subnets: 0 };
+      entry.upWeighted += ratio * samples;
+      entry.samples += samples;
+      entry.subnets += 1;
+      byDate.set(p.date, entry);
+    }
+  }
+  return [...byDate.entries()]
+    .sort(([a], [b]) => a.localeCompare(b))
+    .map(([date, e]) => ({
+      date,
+      uptime_ratio: e.samples > 0 ? e.upWeighted / e.samples : 0,
+      samples: e.samples,
+      subnet_count: e.subnets,
+    }));
+}
+
+type BulkHealthTrendWindowLike = { subnets?: BulkHealthTrendSubnet[] };
+
+// /api/v1/registry/summary
+function numberRecord(raw: unknown): Record<string, number> {
+  if (!isPlainRecord(raw)) return {};
+  const out: Record<string, number> = {};
+  for (const [key, value] of Object.entries(raw)) {
+    const n = optionalNumber(value);
+    if (n != null) out[key] = n;
+  }
+  return out;
+}
+
+function normalizeRegistryTopSubnet(raw: unknown): RegistrySummaryTopSubnet | null {
+  if (!isPlainRecord(raw)) return null;
+  const netuid = optionalNumber(raw.netuid);
+  if (netuid == null) return null;
+  return {
+    netuid,
+    name: coerceString(raw.name),
+    slug: coerceString(raw.slug),
+    completeness_score: optionalNumber(raw.completeness_score),
+    curation_level: coerceString(raw.curation_level),
+    profile_level: coerceString(raw.profile_level),
+  };
+}
+
+function normalizeRegistrySummary(raw: unknown): RegistrySummary {
+  const d = isPlainRecord(raw) ? raw : {};
+  const coverage = isPlainRecord(d.coverage) ? d.coverage : {};
+  const dimRaw = isPlainRecord(coverage.dimension_coverage) ? coverage.dimension_coverage : {};
+  const dimension_coverage: RegistrySummary["coverage"]["dimension_coverage"] = {};
+  for (const [key, value] of Object.entries(dimRaw)) {
+    if (!isPlainRecord(value)) continue;
+    dimension_coverage[key] = {
+      pct: optionalNumber(value.pct),
+      present: optionalNumber(value.present),
+    };
+  }
+  const top = Array.isArray(d.top_subnets)
+    ? d.top_subnets
+        .map(normalizeRegistryTopSubnet)
+        .filter((r): r is RegistrySummaryTopSubnet => r !== null)
+    : [];
+  return {
+    contract_version: coerceString(d.contract_version),
+    generated_at: coerceString(d.generated_at),
+    subnet_count: optionalNumber(d.subnet_count),
+    counts: numberRecord(d.counts),
+    curation_level_counts: numberRecord(d.curation_level_counts),
+    profile_level_counts: numberRecord(d.profile_level_counts),
+    coverage: {
+      average_score: optionalNumber(coverage.average_score),
+      median_score: optionalNumber(coverage.median_score),
+      fully_complete_count: optionalNumber(coverage.fully_complete_count),
+      fully_complete_pct: optionalNumber(coverage.fully_complete_pct),
+      scored_subnet_count: optionalNumber(coverage.scored_subnet_count),
+      score_distribution: numberRecord(coverage.score_distribution),
+      dimension_coverage,
+    },
+    top_subnets: top,
+  };
+}
+
+export const registrySummaryQuery = () =>
+  queryOptions({
+    queryKey: k("registry-summary"),
+    queryFn: async ({ signal }) => {
+      const res = await apiFetch<unknown>("/api/v1/registry/summary", { signal });
+      return {
+        data: normalizeRegistrySummary(res.data),
+        meta: res.meta,
+        url: res.url,
+      } as ApiResult<RegistrySummary>;
+    },
+    staleTime: STALE_MED,
+  });
+
+// /api/v1/coverage-depth
+function normalizeCoverageDepthRow(raw: unknown): CoverageDepthRow | null {
+  if (!isPlainRecord(raw)) return null;
+  const netuid = optionalNumber(raw.netuid);
+  if (netuid == null) return null;
+  const dimRaw = isPlainRecord(raw.dimensions) ? raw.dimensions : {};
+  return {
+    netuid,
+    name: coerceString(raw.name),
+    slug: coerceString(raw.slug),
+    tier: coerceString(raw.tier),
+    agent_status: coerceString(raw.agent_status),
+    blocker_level: coerceString(raw.blocker_level),
+    score: optionalNumber(raw.score),
+    readiness_score: optionalNumber(raw.readiness_score),
+    priority_score: optionalNumber(raw.priority_score),
+    completeness_score: optionalNumber(raw.completeness_score),
+    curation_level: coerceString(raw.curation_level),
+    profile_level: coerceString(raw.profile_level),
+    subnet_type: coerceString(raw.subnet_type),
+    recommended_next_action: coerceString(raw.recommended_next_action),
+    top_gap_codes: stringArray(raw.top_gap_codes),
+    dimensions: {
+      ...dimRaw,
+      surface_count: optionalNumber(dimRaw.surface_count),
+      official_surface_count: optionalNumber(dimRaw.official_surface_count),
+      service_count: optionalNumber(dimRaw.service_count),
+      callable_service_count: optionalNumber(dimRaw.callable_service_count),
+      schema_service_count: optionalNumber(dimRaw.schema_service_count),
+      sdk_count: optionalNumber(dimRaw.sdk_count),
+      example_count: optionalNumber(dimRaw.example_count),
+      data_artifact_count: optionalNumber(dimRaw.data_artifact_count),
+      candidate_count: optionalNumber(dimRaw.candidate_count),
+      docs_url_present: booleanValue(dimRaw.docs_url_present),
+      source_repo_present: booleanValue(dimRaw.source_repo_present),
+      service_kinds: stringArray(dimRaw.service_kinds),
+    },
+  };
+}
+
+function normalizeCoverageDepthQueueRow(raw: unknown): CoverageDepthQueueRow | null {
+  if (!isPlainRecord(raw)) return null;
+  const netuid = optionalNumber(raw.netuid);
+  const rank = optionalNumber(raw.rank);
+  if (netuid == null || rank == null) return null;
+  return {
+    rank,
+    netuid,
+    name: coerceString(raw.name),
+    slug: coerceString(raw.slug),
+    priority_score: optionalNumber(raw.priority_score),
+    score: optionalNumber(raw.score),
+    severity: coerceString(raw.severity),
+    tier: coerceString(raw.tier),
+    recommended_next_action: coerceString(raw.recommended_next_action),
+    top_gap_codes: stringArray(raw.top_gap_codes),
+  };
+}
+
+function normalizeCoverageDepth(raw: unknown): CoverageDepth {
+  const d = isPlainRecord(raw) ? raw : {};
+  const rows = Array.isArray(d.rows)
+    ? d.rows.map(normalizeCoverageDepthRow).filter((r): r is CoverageDepthRow => r !== null)
+    : [];
+  const queue = Array.isArray(d.ranked_queue)
+    ? d.ranked_queue
+        .map(normalizeCoverageDepthQueueRow)
+        .filter((r): r is CoverageDepthQueueRow => r !== null)
+    : [];
+  return {
+    contract_version: coerceString(d.contract_version),
+    generated_at: coerceString(d.generated_at),
+    subnet_count: optionalNumber(d.subnet_count),
+    ranked_queue: queue,
+    rows,
+  };
+}
+
+export const coverageDepthQuery = (params?: QueryParams) =>
+  queryOptions({
+    queryKey: k("coverage-depth", params ?? {}),
+    queryFn: async ({ signal }) => {
+      const res = await apiFetch<unknown>("/api/v1/coverage-depth", { params, signal });
+      return {
+        data: normalizeCoverageDepth(res.data),
+        meta: res.meta,
+        url: res.url,
+      } as ApiResult<CoverageDepth>;
+    },
+    staleTime: STALE_MED,
+  });
+
+// /api/v1/health/history/{date}
+function normalizeHealthHistorySurface(raw: unknown): HealthHistorySurface | null {
+  if (!isPlainRecord(raw)) return null;
+  return {
+    surface_id: coerceString(raw.surface_id),
+    netuid: optionalNumber(raw.netuid),
+    provider: coerceString(raw.provider),
+    kind: coerceString(raw.kind),
+    status: coerceString(raw.status),
+    classification: coerceString(raw.classification),
+    latency_ms: raw.latency_ms == null ? null : optionalNumber(raw.latency_ms),
+    status_code: raw.status_code == null ? null : optionalNumber(raw.status_code),
+    last_checked: coerceString(raw.last_checked),
+    last_ok: coerceString(raw.last_ok) ?? null,
+    verified_at: coerceString(raw.verified_at),
+    error_class: coerceString(raw.error_class) ?? null,
+  };
+}
+
+function normalizeHealthHistory(raw: unknown): HealthHistory {
+  const d = isPlainRecord(raw) ? raw : {};
+  const summary = isPlainRecord(d.summary) ? d.summary : {};
+  const surfaces = Array.isArray(d.surfaces)
+    ? d.surfaces
+        .map(normalizeHealthHistorySurface)
+        .filter((s): s is HealthHistorySurface => s !== null)
+    : [];
+  return {
+    date: coerceString(d.date),
+    probe_started_at: coerceString(d.probe_started_at),
+    probe_finished_at: coerceString(d.probe_finished_at),
+    summary: {
+      status_counts: numberRecord(summary.status_counts),
+      classification_counts: numberRecord(summary.classification_counts),
+      surface_count: optionalNumber(summary.surface_count),
+    },
+    surfaces,
+  };
+}
+
+export const healthHistoryQuery = (date: string, params?: QueryParams) =>
+  queryOptions({
+    queryKey: k("health-history", date, params ?? {}),
+    queryFn: async ({ signal }) => {
+      const res = await apiFetch<unknown>(`/api/v1/health/history/${encodePathSegment(date)}`, {
+        params,
+        signal,
+      });
+      return {
+        data: normalizeHealthHistory(res.data),
+        meta: res.meta,
+        url: res.url,
+      } as ApiResult<HealthHistory>;
+    },
+    staleTime: STALE_MED,
+  });
+
+// /api/v1/source-health — REAL provider rollup. NOTE: the legacy sourceHealthQuery
+// (above) intentionally maps onto /api/v1/freshness; this one hits the actual endpoint.
+function normalizeSourceHealthProvider(raw: unknown): SourceHealthProvider | null {
+  if (!isPlainRecord(raw)) return null;
+  const id = coerceString(raw.id);
+  if (!id) return null;
+  return {
+    id,
+    name: coerceString(raw.name),
+    kind: coerceString(raw.kind),
+    authority: coerceString(raw.authority),
+    status: coerceString(raw.status),
+    endpoint_count: optionalNumber(raw.endpoint_count),
+    rpc_endpoint_count: optionalNumber(raw.rpc_endpoint_count),
+    candidate_count: optionalNumber(raw.candidate_count),
+    verification_result_count: optionalNumber(raw.verification_result_count),
+    classifications: numberRecord(raw.classifications),
+  };
+}
+
+function normalizeSourceHealth(raw: unknown): SourceHealth {
+  const d = isPlainRecord(raw) ? raw : {};
+  const summary = isPlainRecord(d.summary) ? d.summary : {};
+  const providers = Array.isArray(d.providers)
+    ? d.providers
+        .map(normalizeSourceHealthProvider)
+        .filter((p): p is SourceHealthProvider => p !== null)
+    : [];
+  return {
+    generated_at: coerceString(d.generated_at),
+    providers,
+    summary: {
+      provider_count: optionalNumber(summary.provider_count),
+      endpoint_count: optionalNumber(summary.endpoint_count),
+      rpc_endpoint_count: optionalNumber(summary.rpc_endpoint_count),
+      candidate_count: optionalNumber(summary.candidate_count),
+      verification_result_count: optionalNumber(summary.verification_result_count),
+      status_counts: numberRecord(summary.status_counts),
+    },
+  };
+}
+
+export const sourceHealthProvidersQuery = () =>
+  queryOptions({
+    queryKey: k("source-health-providers"),
+    queryFn: async ({ signal }) => {
+      const res = await apiFetch<unknown>("/api/v1/source-health", { signal });
+      return {
+        data: normalizeSourceHealth(res.data),
+        meta: res.meta,
+        url: res.url,
+      } as ApiResult<SourceHealth>;
+    },
+    staleTime: STALE_MED,
+  });
+
+/* ===================== Theme C: agent-catalog (capability) ===================== */
+
+function stringArray(raw: unknown): string[] | undefined {
+  if (!Array.isArray(raw)) return undefined;
+  const out = raw.filter((v): v is string => typeof v === "string");
+  return out.length ? out : undefined;
+}
+
+function normalizeAgentBlocker(raw: unknown): AgentCatalogBlocker | null {
+  if (!isPlainRecord(raw)) return null;
+  return {
+    code: coerceString(raw.code),
+    field: coerceString(raw.field),
+    message: coerceString(raw.message),
+    next_action: coerceString(raw.next_action),
+    severity: coerceString(raw.severity),
+  };
+}
+
+function normalizeAgentReadiness(raw: unknown): AgentReadiness | undefined {
+  if (!isPlainRecord(raw)) return undefined;
+  const blockers = Array.isArray(raw.blockers)
+    ? raw.blockers.map(normalizeAgentBlocker).filter((b): b is AgentCatalogBlocker => b !== null)
+    : undefined;
+  return {
+    status: coerceString(raw.status),
+    blocker_level: coerceString(raw.blocker_level),
+    blockers,
+    missing_fields: stringArray(raw.missing_fields),
+  };
+}
+
+// readiness_tier lives in two places by bucket: ready rows nest it under
+// readiness.readiness_tier, blocked rows carry a flat readiness_tier.
+function resolveReadinessTier(raw: Record<string, unknown>): string | undefined {
+  const nested = isPlainRecord(raw.readiness)
+    ? coerceString(raw.readiness.readiness_tier)
+    : undefined;
+  return nested ?? coerceString(raw.readiness_tier);
+}
+
+function normalizeAgentCatalogReadiness(raw: unknown) {
+  if (!isPlainRecord(raw)) return undefined;
+  const components = isPlainRecord(raw.components)
+    ? Object.fromEntries(
+        Object.entries(raw.components).flatMap(([key, value]) =>
+          typeof value === "boolean" ? [[key, value] as const] : [],
+        ),
+      )
+    : undefined;
+  return {
+    score: optionalNumber(raw.score),
+    readiness_tier: coerceString(raw.readiness_tier),
+    components,
+    readiness_verified: booleanValue(raw.readiness_verified),
+  };
+}
+
+function normalizeAgentCatalogSummary(raw: unknown): AgentCatalogSummary | null {
+  if (!isPlainRecord(raw)) return null;
+  const netuid = optionalNumber(raw.netuid);
+  if (netuid == null) return null;
+  return {
+    netuid,
+    name: coerceString(raw.name),
+    slug: coerceString(raw.slug),
+    subnet_type: coerceString(raw.subnet_type),
+    integration_readiness: optionalNumber(raw.integration_readiness),
+    completeness_score: optionalNumber(raw.completeness_score),
+    readiness_tier: resolveReadinessTier(raw),
+    service_count: optionalNumber(raw.service_count),
+    callable_count: optionalNumber(raw.callable_count),
+    service_kinds: stringArray(raw.service_kinds),
+    categories: stringArray(raw.categories),
+    base_url: coerceString(raw.base_url),
+    health: coerceString(raw.health),
+    agent_readiness: normalizeAgentReadiness(raw.agent_readiness),
+    readiness: normalizeAgentCatalogReadiness(raw.readiness),
+  };
+}
+
+function normalizeAgentCatalogService(raw: unknown): AgentCatalogService | null {
+  if (!isPlainRecord(raw)) return null;
+  const healthRaw = isPlainRecord(raw.health) ? raw.health : undefined;
+  const eligRaw = isPlainRecord(raw.eligibility) ? raw.eligibility : undefined;
+  const snipRaw = isPlainRecord(raw.snippets) ? raw.snippets : undefined;
+  return {
+    kind: coerceString(raw.kind),
+    capability: coerceString(raw.capability),
+    description: coerceString(raw.description) ?? null,
+    base_url: coerceString(raw.base_url),
+    provider: coerceString(raw.provider),
+    authority: coerceString(raw.authority),
+    auth_required: booleanValue(raw.auth_required),
+    auth_schemes: stringArray(raw.auth_schemes),
+    health: healthRaw
+      ? {
+          status: coerceString(healthRaw.status),
+          classification: coerceString(healthRaw.classification),
+          latency_ms: optionalNumber(healthRaw.latency_ms),
+          last_ok: coerceString(healthRaw.last_ok),
+          last_checked: coerceString(healthRaw.last_checked),
+          stale: booleanValue(healthRaw.stale),
+          observed_by: coerceString(healthRaw.observed_by),
+        }
+      : undefined,
+    eligibility: eligRaw
+      ? {
+          callable: booleanValue(eligRaw.callable),
+          live_status: coerceString(eligRaw.live_status),
+          reasons: stringArray(eligRaw.reasons),
+        }
+      : undefined,
+    schema_url: coerceString(raw.schema_url) ?? null,
+    surface_id: coerceString(raw.surface_id),
+    snippets: snipRaw
+      ? {
+          curl: coerceString(snipRaw.curl),
+          python: coerceString(snipRaw.python),
+          typescript: coerceString(snipRaw.typescript),
+        }
+      : undefined,
+  };
+}
+
+function normalizeAgentCatalogDetail(raw: unknown, netuid: number): AgentCatalogDetail {
+  const base = normalizeAgentCatalogSummary(raw) ?? { netuid };
+  const d = isPlainRecord(raw) ? raw : {};
+  const services = Array.isArray(d.services)
+    ? d.services
+        .map(normalizeAgentCatalogService)
+        .filter((s): s is AgentCatalogService => s !== null)
+    : [];
+  return {
+    ...base,
+    netuid,
+    services,
+    examples: Array.isArray(d.examples) ? d.examples : [],
+    example_count: optionalNumber(d.example_count),
+    generated_at: coerceString(d.generated_at),
+    operational_observed_at: coerceString(d.operational_observed_at),
+    health_source: coerceString(d.health_source),
+  };
+}
+
+/** Per-netuid agent-catalog capability map (mirrors subnetHealthMapQuery). Walks
+ * both the ready `subnets[]` and `blocked_subnets[]` arrays into one keyed map so
+ * the subnets list can join service-kind / readiness onto rows. */
+export const agentCatalogMapQuery = () =>
+  queryOptions({
+    queryKey: k("agent-catalog-map"),
+    queryFn: async ({ signal }) => {
+      const empty = { data: {} as Record<number, AgentCatalogSummary> };
+      try {
+        const res = await apiFetch<Record<string, unknown>>("/api/v1/agent-catalog", { signal });
+        const d = isPlainRecord(res.data) ? res.data : {};
+        const map: Record<number, AgentCatalogSummary> = {};
+        for (const key of ["subnets", "blocked_subnets"] as const) {
+          const arr = Array.isArray(d[key]) ? (d[key] as unknown[]) : [];
+          for (const row of arr) {
+            const norm = normalizeAgentCatalogSummary(row);
+            if (norm) map[norm.netuid] = norm;
+          }
+        }
+        return { data: map, meta: res.meta, url: res.url };
+      } catch {
+        return empty;
+      }
+    },
+    staleTime: STALE_MED,
+  });
+
+export const agentCatalogDetailQuery = (netuid: number) =>
+  queryOptions({
+    queryKey: k("agent-catalog-detail", netuid),
+    queryFn: async ({ signal }) => {
+      const res = await apiFetch<unknown>(`/api/v1/agent-catalog/${netuid}`, { signal });
+      return {
+        data: normalizeAgentCatalogDetail(res.data, netuid),
+        meta: res.meta,
+        url: res.url,
+      } as ApiResult<AgentCatalogDetail>;
     },
     staleTime: STALE_MED,
   });
