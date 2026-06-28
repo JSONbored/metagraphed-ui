@@ -26,6 +26,11 @@ import { ReliabilityPanel } from "@/components/metagraphed/reliability-panel";
 import { EconomicsPanel } from "@/components/metagraphed/economics-panel";
 import { EndpointSnippet } from "@/components/metagraphed/endpoint-snippet";
 import { SubnetHistoryChart } from "@/components/metagraphed/subnet-history-chart";
+import { MetagraphTableLoader } from "@/components/metagraphed/metagraph-panel";
+import { ValidatorsTableLoader } from "@/components/metagraphed/validators-panel";
+import { ConcentrationLoader } from "@/components/metagraphed/concentration-panel";
+import { NeuronDetailCard } from "@/components/metagraphed/neuron-detail-card";
+import { NeuronHistoryChart } from "@/components/metagraphed/neuron-history-chart";
 import { useHashScroll } from "@/components/metagraphed/use-hash-scroll";
 import {
   subnetProfileQuery,
@@ -62,13 +67,18 @@ import { SubnetCompareDrawer } from "@/components/metagraphed/subnet-compare-dra
 type SearchParams = {
   tab?: string;
   sev?: string;
+  uid?: number;
 };
 
 export const Route = createFileRoute("/subnets/$netuid")({
-  validateSearch: (s: Record<string, unknown>): SearchParams => ({
-    tab: typeof s.tab === "string" ? s.tab : undefined,
-    sev: typeof s.sev === "string" ? s.sev : undefined,
-  }),
+  validateSearch: (s: Record<string, unknown>): SearchParams => {
+    const uidNum = Number(s.uid);
+    return {
+      tab: typeof s.tab === "string" ? s.tab : undefined,
+      sev: typeof s.sev === "string" ? s.sev : undefined,
+      uid: Number.isInteger(uidNum) && uidNum >= 0 ? uidNum : undefined,
+    };
+  },
   parseParams: ({ netuid }) => {
     const n = Number(netuid);
     if (!Number.isFinite(n) || n < 0) throw notFound();
@@ -122,6 +132,8 @@ export const Route = createFileRoute("/subnets/$netuid")({
 
 const TABS = [
   { id: "overview", label: "Overview" },
+  { id: "metagraph", label: "Metagraph" },
+  { id: "validators", label: "Validators" },
   { id: "activity", label: "Activity" },
   { id: "surfaces", label: "Surfaces" },
   { id: "endpoints", label: "Endpoints" },
@@ -141,6 +153,10 @@ const SECTION_TO_TAB: Record<string, string> = {
   reliability: "overview",
   lineage: "overview",
   evidence: "overview",
+  metagraph: "metagraph",
+  neuron: "metagraph",
+  concentration: "metagraph",
+  validators: "validators",
   surfaces: "surfaces",
   endpoints: "endpoints",
   "schema-drift": "schemas",
@@ -226,6 +242,8 @@ function ProfileShell({ netuid }: { netuid: number }) {
 
         <div className="mt-6 min-w-0 space-y-8">
           {tab === "overview" ? <OverviewPanel netuid={netuid} profile={profile} /> : null}
+          {tab === "metagraph" ? <MetagraphPanel netuid={netuid} /> : null}
+          {tab === "validators" ? <ValidatorsPanel netuid={netuid} /> : null}
           {tab === "activity" ? <ActivityPanel netuid={netuid} /> : null}
           {tab === "surfaces" ? <SurfacesPanel netuid={netuid} /> : null}
           {tab === "endpoints" ? <EndpointsPanel netuid={netuid} /> : null}
@@ -507,6 +525,107 @@ function ActivityTableLoader({ netuid }: { netuid: number }) {
         </tbody>
       </table>
     </div>
+  );
+}
+
+/* ----------------------------- metagraph depth ----------------------------- */
+
+// Subnet economic depth (#1302+): the live metagraph snapshot — sortable neuron
+// table + stake distribution + validator-permit filter — with a per-UID
+// drill-in detail card (snapshot + history) driven by the `?uid=` search param.
+function MetagraphPanel({ netuid }: { netuid: number }) {
+  const { uid } = Route.useSearch();
+  const navigate = Route.useNavigate();
+
+  const select = (next: number | null) =>
+    navigate({
+      to: ".",
+      search: (prev: SearchParams) => ({ ...prev, uid: next ?? undefined }),
+      replace: true,
+    });
+
+  return (
+    <div className="space-y-6">
+      {uid != null ? (
+        <SectionAnchor
+          id="neuron"
+          title={`Neuron UID ${uid}`}
+          subtitle="Live snapshot and per-UID on-chain history for the selected neuron."
+          info="GET /api/v1/subnets/{netuid}/neurons/{uid} and /neurons/{uid}/history"
+          tone="accent"
+        >
+          <QueryErrorBoundary>
+            <Suspense fallback={<Skeleton className="h-48 w-full" />}>
+              <NeuronDetailCard netuid={netuid} uid={uid} onClose={() => select(null)} />
+            </Suspense>
+          </QueryErrorBoundary>
+          <div className="mt-4">
+            <QueryErrorBoundary>
+              <NeuronHistoryChart netuid={netuid} uid={uid} />
+            </QueryErrorBoundary>
+          </div>
+        </SectionAnchor>
+      ) : null}
+
+      <SectionAnchor
+        id="metagraph"
+        title="Metagraph"
+        subtitle="Live neuron snapshot — stake, emission, rank, trust, consensus, and validator permits."
+        info="GET /api/v1/subnets/{netuid}/metagraph — the full neuron set from the latest metagraph snapshot. Select a UID to drill into its snapshot + history."
+      >
+        <QueryErrorBoundary>
+          <Suspense fallback={<Skeleton className="h-64 w-full" />}>
+            <MetagraphTableLoader netuid={netuid} onSelect={(u) => select(u)} selectedUid={uid} />
+          </Suspense>
+        </QueryErrorBoundary>
+      </SectionAnchor>
+
+      <SectionAnchor
+        id="concentration"
+        title="Concentration"
+        subtitle="Stake- and emission-distribution metrics: Gini, HHI, Nakamoto coefficient, and top-percentile shares with daily drift."
+        info="GET /api/v1/subnets/{netuid}/concentration and /concentration/history — how concentrated stake and emission are across neurons."
+        tone="muted"
+      >
+        <QueryErrorBoundary>
+          <Suspense fallback={<Skeleton className="h-48 w-full" />}>
+            <ConcentrationLoader netuid={netuid} />
+          </Suspense>
+        </QueryErrorBoundary>
+      </SectionAnchor>
+    </div>
+  );
+}
+
+// Top-validator stake distribution + leaderboard. Rows drill into the same
+// per-UID neuron view (switches to the Metagraph tab where the detail renders).
+function ValidatorsPanel({ netuid }: { netuid: number }) {
+  const { uid } = Route.useSearch();
+  const navigate = Route.useNavigate();
+
+  return (
+    <SectionAnchor
+      id="validators"
+      title="Validators"
+      subtitle="Active validator set ranked by stake — emission, trust, and consensus."
+      info="GET /api/v1/subnets/{netuid}/validators — the permitted, stake-ranked validator set from the latest snapshot. Select a UID to open it in the Metagraph tab."
+    >
+      <QueryErrorBoundary>
+        <Suspense fallback={<Skeleton className="h-64 w-full" />}>
+          <ValidatorsTableLoader
+            netuid={netuid}
+            selectedUid={uid}
+            onSelect={(u) =>
+              navigate({
+                to: ".",
+                search: (prev: SearchParams) => ({ ...prev, tab: "metagraph", uid: u }),
+                replace: true,
+              })
+            }
+          />
+        </Suspense>
+      </QueryErrorBoundary>
+    </SectionAnchor>
   );
 }
 

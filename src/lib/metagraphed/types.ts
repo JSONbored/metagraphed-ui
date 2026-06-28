@@ -1026,6 +1026,116 @@ export interface SubnetNeuronHistory {
   points: SubnetNeuronHistoryPoint[];
 }
 
+// ---- Subnet economic depth: metagraph / validators / concentration ----------
+//
+// Render shapes for the live metagraph-snapshot tier:
+//   - /subnets/{n}/metagraph      → the full neuron table
+//   - /subnets/{n}/validators     → pre-filtered + ranked validators (same row)
+//   - /subnets/{n}/neurons/{uid}  → a single neuron snapshot
+//   - /subnets/{n}/concentration  → stake/emission distribution metrics
+//   - /subnets/{n}/concentration/history → daily Gini/Nakamoto/top-share drift
+// Every per-neuron field is optional + nullable: the snapshot fills rank/axon/
+// emission with null for inactive UIDs, so consumers must be null-safe.
+
+/** One neuron row from /subnets/{n}/metagraph (and /validators, /neurons/{uid}). */
+export interface MetagraphNeuron {
+  uid: number;
+  hotkey?: string;
+  coldkey?: string;
+  active?: boolean;
+  validator_permit?: boolean;
+  rank?: number | null;
+  trust?: number;
+  validator_trust?: number;
+  consensus?: number;
+  incentive?: number;
+  dividends?: number;
+  emission_tao?: number;
+  stake_tao?: number;
+  registered_at_block?: number;
+  is_immunity_period?: boolean;
+  axon?: string | null;
+  [key: string]: unknown;
+}
+
+/** The full metagraph snapshot from /api/v1/subnets/{netuid}/metagraph. */
+export interface SubnetMetagraph {
+  netuid: number;
+  neuron_count?: number;
+  captured_at?: string;
+  block_number?: number;
+  neurons: MetagraphNeuron[];
+}
+
+/** The pre-filtered/ranked validator set from /api/v1/subnets/{netuid}/validators. */
+export interface SubnetValidators {
+  netuid: number;
+  validator_count?: number;
+  captured_at?: string;
+  block_number?: number;
+  validators: MetagraphNeuron[];
+}
+
+/** A single neuron snapshot from /api/v1/subnets/{netuid}/neurons/{uid}. */
+export interface SubnetNeuronSnapshot {
+  netuid: number;
+  uid: number;
+  captured_at?: string;
+  block_number?: number;
+  neuron?: MetagraphNeuron;
+}
+
+/** One distribution metric block (stake / emission / entity_* / validator_*). */
+export interface ConcentrationMetrics {
+  holders?: number;
+  total?: number;
+  gini?: number;
+  hhi?: number;
+  hhi_normalized?: number;
+  nakamoto_coefficient?: number;
+  top_1pct_share?: number;
+  top_5pct_share?: number;
+  top_10pct_share?: number;
+  top_20pct_share?: number;
+  entropy?: number;
+  entropy_normalized?: number;
+}
+
+/** Concentration metrics from /api/v1/subnets/{netuid}/concentration. */
+export interface SubnetConcentration {
+  netuid: number;
+  neuron_count?: number;
+  entity_count?: number;
+  uids_per_entity?: number;
+  captured_at?: string;
+  stake?: ConcentrationMetrics;
+  emission?: ConcentrationMetrics;
+  entity_stake?: ConcentrationMetrics;
+  entity_emission?: ConcentrationMetrics;
+  validator_stake?: ConcentrationMetrics;
+}
+
+/** One daily concentration-history point from /concentration/history. */
+export interface ConcentrationHistoryPoint {
+  snapshot_date: string;
+  neuron_count?: number;
+  stake_gini?: number | null;
+  stake_nakamoto_coefficient?: number | null;
+  stake_top_10pct_share?: number | null;
+  emission_gini?: number | null;
+  emission_nakamoto_coefficient?: number | null;
+  emission_top_10pct_share?: number | null;
+  [key: string]: unknown;
+}
+
+/** Concentration drift from /api/v1/subnets/{netuid}/concentration/history. */
+export interface SubnetConcentrationHistory {
+  netuid: number;
+  window?: string;
+  point_count?: number;
+  points: ConcentrationHistoryPoint[];
+}
+
 // --- Compile-time contract enforcement ---------------------------------------
 //
 // These are type-only assertions (zero runtime cost). They tie this file's UI

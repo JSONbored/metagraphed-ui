@@ -71,6 +71,14 @@ import type {
   SubnetHistoryPoint,
   SubnetNeuronHistory,
   SubnetNeuronHistoryPoint,
+  MetagraphNeuron,
+  SubnetMetagraph,
+  SubnetValidators,
+  SubnetNeuronSnapshot,
+  ConcentrationMetrics,
+  SubnetConcentration,
+  ConcentrationHistoryPoint,
+  SubnetConcentrationHistory,
   SubnetProfile,
   Surface,
   SurfaceLatencyPercentiles,
@@ -93,6 +101,9 @@ const MAX_TRAJECTORY_POINTS = 104;
 // /history + /neurons/{uid}/history are daily snapshots; an "all"/"1y" window can
 // run ~365 points — cap a touch above a year so the sparklines stay bounded.
 const MAX_HISTORY_POINTS = 400;
+// A subnet has up to 256 neurons; cap a touch above to stay schema-stable if a
+// future chain raises the max-UID ceiling.
+const MAX_NEURON_ROWS = 512;
 const MAX_UPTIME_SURFACES = 500;
 const MAX_UPTIME_DAYS = 366;
 const MAX_HEALTH_TREND_SURFACES = 500;
@@ -2036,6 +2047,245 @@ export const subnetNeuronHistoryQuery = (netuid: number, uid: number, window = "
         meta: res.meta,
         url: res.url,
       };
+    },
+    staleTime: STALE_MED,
+  });
+
+// ---- Subnet economic depth (metagraph / validators / concentration) --------
+// Live metagraph-snapshot tier. Inactive UIDs carry null rank/axon/emission, so
+// every per-neuron field is guarded null-safe and falls through to undefined.
+
+/** Normalize one neuron row; null/missing optional fields collapse to undefined. */
+function normalizeMetagraphNeuron(raw: unknown): MetagraphNeuron | undefined {
+  if (!isPlainRecord(raw)) return undefined;
+  const uid = coerceFiniteNumber(raw.uid);
+  if (uid == null) return undefined;
+  return {
+    ...(raw as object),
+    uid,
+    hotkey: coerceString(raw.hotkey),
+    coldkey: coerceString(raw.coldkey),
+    active: booleanValue(raw.active),
+    validator_permit: booleanValue(raw.validator_permit),
+    rank: coerceFiniteNumber(raw.rank) ?? null,
+    trust: coerceFiniteNumber(raw.trust),
+    validator_trust: coerceFiniteNumber(raw.validator_trust),
+    consensus: coerceFiniteNumber(raw.consensus),
+    incentive: coerceFiniteNumber(raw.incentive),
+    dividends: coerceFiniteNumber(raw.dividends),
+    emission_tao: coerceFiniteNumber(raw.emission_tao),
+    stake_tao: coerceFiniteNumber(raw.stake_tao),
+    registered_at_block: coerceFiniteNumber(raw.registered_at_block),
+    is_immunity_period: booleanValue(raw.is_immunity_period),
+    axon: coerceString(raw.axon) ?? null,
+  };
+}
+
+function normalizeNeuronRows(raw: unknown): MetagraphNeuron[] {
+  return Array.isArray(raw)
+    ? raw.slice(0, MAX_NEURON_ROWS).flatMap((n) => {
+        const normalized = normalizeMetagraphNeuron(n);
+        return normalized ? [normalized] : [];
+      })
+    : [];
+}
+
+function normalizeSubnetMetagraph(netuid: number, raw: unknown): SubnetMetagraph {
+  const d = isPlainRecord(raw) ? raw : {};
+  const neurons = normalizeNeuronRows(d.neurons);
+  return {
+    netuid: coerceFiniteNumber(d.netuid) ?? netuid,
+    neuron_count: coerceFiniteNumber(d.neuron_count) ?? neurons.length,
+    captured_at: coerceString(d.captured_at),
+    block_number: coerceFiniteNumber(d.block_number),
+    neurons,
+  };
+}
+
+function normalizeSubnetValidators(netuid: number, raw: unknown): SubnetValidators {
+  const d = isPlainRecord(raw) ? raw : {};
+  const validators = normalizeNeuronRows(d.validators);
+  return {
+    netuid: coerceFiniteNumber(d.netuid) ?? netuid,
+    validator_count: coerceFiniteNumber(d.validator_count) ?? validators.length,
+    captured_at: coerceString(d.captured_at),
+    block_number: coerceFiniteNumber(d.block_number),
+    validators,
+  };
+}
+
+function normalizeNeuronSnapshot(netuid: number, uid: number, raw: unknown): SubnetNeuronSnapshot {
+  const d = isPlainRecord(raw) ? raw : {};
+  return {
+    netuid: coerceFiniteNumber(d.netuid) ?? netuid,
+    uid: coerceFiniteNumber(d.uid) ?? uid,
+    captured_at: coerceString(d.captured_at),
+    block_number: coerceFiniteNumber(d.block_number),
+    neuron: normalizeMetagraphNeuron(d.neuron),
+  };
+}
+
+function normalizeConcentrationMetrics(raw: unknown): ConcentrationMetrics | undefined {
+  if (!isPlainRecord(raw)) return undefined;
+  return {
+    holders: coerceFiniteNumber(raw.holders),
+    total: coerceFiniteNumber(raw.total),
+    gini: coerceFiniteNumber(raw.gini),
+    hhi: coerceFiniteNumber(raw.hhi),
+    hhi_normalized: coerceFiniteNumber(raw.hhi_normalized),
+    nakamoto_coefficient: coerceFiniteNumber(raw.nakamoto_coefficient),
+    top_1pct_share: coerceFiniteNumber(raw.top_1pct_share),
+    top_5pct_share: coerceFiniteNumber(raw.top_5pct_share),
+    top_10pct_share: coerceFiniteNumber(raw.top_10pct_share),
+    top_20pct_share: coerceFiniteNumber(raw.top_20pct_share),
+    entropy: coerceFiniteNumber(raw.entropy),
+    entropy_normalized: coerceFiniteNumber(raw.entropy_normalized),
+  };
+}
+
+function normalizeSubnetConcentration(netuid: number, raw: unknown): SubnetConcentration {
+  const d = isPlainRecord(raw) ? raw : {};
+  return {
+    netuid: coerceFiniteNumber(d.netuid) ?? netuid,
+    neuron_count: coerceFiniteNumber(d.neuron_count),
+    entity_count: coerceFiniteNumber(d.entity_count),
+    uids_per_entity: coerceFiniteNumber(d.uids_per_entity),
+    captured_at: coerceString(d.captured_at),
+    stake: normalizeConcentrationMetrics(d.stake),
+    emission: normalizeConcentrationMetrics(d.emission),
+    entity_stake: normalizeConcentrationMetrics(d.entity_stake),
+    entity_emission: normalizeConcentrationMetrics(d.entity_emission),
+    validator_stake: normalizeConcentrationMetrics(d.validator_stake),
+  };
+}
+
+function normalizeConcentrationHistoryPoint(raw: unknown): ConcentrationHistoryPoint | undefined {
+  if (!isPlainRecord(raw)) return undefined;
+  const snapshotDate = coerceString(raw.snapshot_date);
+  if (!snapshotDate) return undefined;
+  // Nullable-by-design: the early window has no stake metrics yet — keep null
+  // (not undefined) so the chart can render a gap rather than dropping the day.
+  const nullableNum = (v: unknown): number | null => coerceFiniteNumber(v) ?? null;
+  return {
+    ...(raw as object),
+    snapshot_date: snapshotDate,
+    neuron_count: coerceFiniteNumber(raw.neuron_count),
+    stake_gini: nullableNum(raw.stake_gini),
+    stake_nakamoto_coefficient: nullableNum(raw.stake_nakamoto_coefficient),
+    stake_top_10pct_share: nullableNum(raw.stake_top_10pct_share),
+    emission_gini: nullableNum(raw.emission_gini),
+    emission_nakamoto_coefficient: nullableNum(raw.emission_nakamoto_coefficient),
+    emission_top_10pct_share: nullableNum(raw.emission_top_10pct_share),
+  };
+}
+
+function normalizeSubnetConcentrationHistory(
+  netuid: number,
+  raw: unknown,
+): SubnetConcentrationHistory {
+  const d = isPlainRecord(raw) ? raw : {};
+  const points = Array.isArray(d.points)
+    ? d.points.slice(-MAX_HISTORY_POINTS).flatMap((point) => {
+        const normalized = normalizeConcentrationHistoryPoint(point);
+        return normalized ? [normalized] : [];
+      })
+    : [];
+  return {
+    netuid: coerceFiniteNumber(d.netuid) ?? netuid,
+    window: coerceString(d.window),
+    point_count: coerceFiniteNumber(d.point_count) ?? points.length,
+    points,
+  };
+}
+
+/** Full metagraph snapshot — all neurons with stake/emission/rank/trust/permit. */
+export const subnetMetagraphQuery = (netuid: number) =>
+  queryOptions({
+    queryKey: k("subnet-metagraph", netuid),
+    queryFn: async ({ signal }) => {
+      const res = await apiFetch<Partial<SubnetMetagraph>>(`/api/v1/subnets/${netuid}/metagraph`, {
+        signal,
+      });
+      return {
+        data: normalizeSubnetMetagraph(netuid, res.data),
+        meta: res.meta,
+        url: res.url,
+      } as ApiResult<SubnetMetagraph>;
+    },
+    staleTime: STALE_SHORT,
+  });
+
+/** Pre-filtered + ranked validator set (permitted neurons, stake-sorted). */
+export const subnetValidatorsQuery = (netuid: number) =>
+  queryOptions({
+    queryKey: k("subnet-validators", netuid),
+    queryFn: async ({ signal }) => {
+      const res = await apiFetch<Partial<SubnetValidators>>(
+        `/api/v1/subnets/${netuid}/validators`,
+        { signal },
+      );
+      return {
+        data: normalizeSubnetValidators(netuid, res.data),
+        meta: res.meta,
+        url: res.url,
+      } as ApiResult<SubnetValidators>;
+    },
+    staleTime: STALE_SHORT,
+  });
+
+/** Single-neuron snapshot for the drill-in detail card. */
+export const subnetNeuronQuery = (netuid: number, uid: number) =>
+  queryOptions({
+    queryKey: k("subnet-neuron", netuid, uid),
+    queryFn: async ({ signal }) => {
+      const res = await apiFetch<Partial<SubnetNeuronSnapshot>>(
+        `/api/v1/subnets/${netuid}/neurons/${uid}`,
+        { signal },
+      );
+      return {
+        data: normalizeNeuronSnapshot(netuid, uid, res.data),
+        meta: res.meta,
+        url: res.url,
+      } as ApiResult<SubnetNeuronSnapshot>;
+    },
+    staleTime: STALE_SHORT,
+  });
+
+/** Stake/emission concentration metrics (Gini, HHI, Nakamoto, top-pct shares). */
+export const subnetConcentrationQuery = (netuid: number) =>
+  queryOptions({
+    queryKey: k("subnet-concentration", netuid),
+    queryFn: async ({ signal }) => {
+      const res = await apiFetch<Partial<SubnetConcentration>>(
+        `/api/v1/subnets/${netuid}/concentration`,
+        { signal },
+      );
+      return {
+        data: normalizeSubnetConcentration(netuid, res.data),
+        meta: res.meta,
+        url: res.url,
+      } as ApiResult<SubnetConcentration>;
+    },
+    staleTime: STALE_MED,
+  });
+
+/** Daily concentration drift (stake/emission Gini, Nakamoto, top-10% share). */
+export const subnetConcentrationHistoryQuery = (
+  netuid: number,
+  window: "7d" | "30d" | "90d" = "30d",
+) =>
+  queryOptions({
+    queryKey: k("subnet-concentration-history", netuid, window),
+    queryFn: async ({ signal }) => {
+      const res = await apiFetch<Partial<SubnetConcentrationHistory>>(
+        `/api/v1/subnets/${netuid}/concentration/history`,
+        { params: { window }, signal },
+      );
+      return {
+        data: normalizeSubnetConcentrationHistory(netuid, res.data),
+        meta: res.meta,
+        url: res.url,
+      } as ApiResult<SubnetConcentrationHistory>;
     },
     staleTime: STALE_MED,
   });
