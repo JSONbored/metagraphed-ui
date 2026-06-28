@@ -125,6 +125,10 @@ const MAX_NEURON_ROWS = 512;
 const MAX_UPTIME_SURFACES = 500;
 const MAX_UPTIME_DAYS = 366;
 const MAX_HEALTH_TREND_SURFACES = 500;
+// Per-day points[] in a health-trend window are daily samples, not surfaces. Cap
+// to the daily-window ceiling (matches MAX_HISTORY_POINTS) — a "1y" window holds
+// ~366 days, so this is a safety bound rather than a routine truncation.
+const MAX_HEALTH_TREND_DAYS = 400;
 const MAX_ACCOUNT_EVENTS = 100;
 const MAX_EXTRINSIC_CALL_ARGS = 64;
 const MAX_EXTRINSIC_EVENTS = 100;
@@ -802,7 +806,7 @@ function normalizeBulkTrendSubnet(raw: unknown): BulkHealthTrendSubnet | null {
   if (netuid == null) return null;
   const points = Array.isArray(raw.points)
     ? raw.points
-        .slice(0, MAX_HEALTH_TREND_SURFACES)
+        .slice(0, MAX_HEALTH_TREND_DAYS)
         .map(normalizeBulkTrendPoint)
         .filter((p): p is BulkHealthTrendPoint => p !== null)
     : [];

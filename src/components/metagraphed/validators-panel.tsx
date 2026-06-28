@@ -67,6 +67,7 @@ export function ValidatorsTableLoader({
       <NeuronTable
         netuid={netuid}
         rows={validators}
+        variant="validator"
         defaultField="stake_tao"
         onSelect={onSelect}
         selectedUid={selectedUid}

@@ -24,7 +24,18 @@ function scoreStr(v?: number | null): string {
   return v.toFixed(3);
 }
 
-type SortField = "uid" | "stake_tao" | "emission_tao" | "rank" | "trust" | "consensus";
+type SortField =
+  | "uid"
+  | "stake_tao"
+  | "emission_tao"
+  | "rank"
+  | "trust"
+  | "consensus"
+  | "dividends"
+  | "validator_trust";
+
+/** Which scoring columns each variant surfaces, in render order. */
+type NeuronTableVariant = "miner" | "validator";
 
 const NUMERIC_FIELDS = new Set<SortField>([
   "uid",
@@ -33,10 +44,20 @@ const NUMERIC_FIELDS = new Set<SortField>([
   "rank",
   "trust",
   "consensus",
+  "dividends",
+  "validator_trust",
 ]);
 
+/**
+ * Validator scoring lives in validator_trust, but the chain only populates it
+ * for permitted neurons — fall back to plain `trust` when the payload omits it.
+ */
+function validatorTrustValue(n: MetagraphNeuron): number | null | undefined {
+  return n.validator_trust ?? n.trust;
+}
+
 function sortValue(n: MetagraphNeuron, field: SortField): number {
-  const v = n[field];
+  const v = field === "validator_trust" ? validatorTrustValue(n) : n[field];
   if (typeof v === "number" && Number.isFinite(v)) return v;
   // Inactive UIDs have null rank/emission; sink them to the bottom of a desc sort.
   return field === "rank" ? Number.POSITIVE_INFINITY : Number.NEGATIVE_INFINITY;
@@ -51,16 +72,24 @@ function sortValue(n: MetagraphNeuron, field: SortField): number {
 export function NeuronTable({
   netuid,
   rows,
+  variant = "miner",
   defaultField = "stake_tao",
   onSelect,
   selectedUid,
 }: {
   netuid: number;
   rows: MetagraphNeuron[];
+  /**
+   * `miner` (default) shows rank/trust/consensus — the metagraph leaderboard.
+   * `validator` swaps those for dividends/validator-trust, the metrics that
+   * actually score a validator (rank is null, consensus ~0 for validators).
+   */
+  variant?: NeuronTableVariant;
   defaultField?: SortField;
   onSelect?: (uid: number) => void;
   selectedUid?: number | null;
 }) {
+  const isValidator = variant === "validator";
   const [field, setField] = useState<SortField>(defaultField);
   const [order, setOrder] = useState<"asc" | "desc">("desc");
 
@@ -111,9 +140,18 @@ export function NeuronTable({
               </th>
               {col("stake_tao", "Stake τ")}
               {col("emission_tao", "Emission τ")}
-              {col("rank", "Rank")}
-              {col("trust", "Trust")}
-              {col("consensus", "Consensus")}
+              {isValidator ? (
+                <>
+                  {col("dividends", "Dividends")}
+                  {col("validator_trust", "Val Trust")}
+                </>
+              ) : (
+                <>
+                  {col("rank", "Rank")}
+                  {col("trust", "Trust")}
+                  {col("consensus", "Consensus")}
+                </>
+              )}
               <th className="px-3 py-2.5 text-center font-mono text-[10px] uppercase tracking-widest">
                 Permit
               </th>
@@ -169,15 +207,28 @@ export function NeuronTable({
                   <td className="px-3 py-2.5 text-right font-mono text-[12px] tabular-nums text-ink">
                     {taoCompact(n.emission_tao)}
                   </td>
-                  <td className="px-3 py-2.5 text-right font-mono text-[12px] tabular-nums text-ink-muted">
-                    {n.rank == null ? "—" : n.rank}
-                  </td>
-                  <td className="px-3 py-2.5 text-right font-mono text-[12px] tabular-nums text-ink-muted">
-                    {scoreStr(n.trust)}
-                  </td>
-                  <td className="px-3 py-2.5 text-right font-mono text-[12px] tabular-nums text-ink-muted">
-                    {scoreStr(n.consensus)}
-                  </td>
+                  {isValidator ? (
+                    <>
+                      <td className="px-3 py-2.5 text-right font-mono text-[12px] tabular-nums text-ink">
+                        {scoreStr(n.dividends)}
+                      </td>
+                      <td className="px-3 py-2.5 text-right font-mono text-[12px] tabular-nums text-ink-muted">
+                        {scoreStr(validatorTrustValue(n))}
+                      </td>
+                    </>
+                  ) : (
+                    <>
+                      <td className="px-3 py-2.5 text-right font-mono text-[12px] tabular-nums text-ink-muted">
+                        {n.rank == null ? "—" : n.rank}
+                      </td>
+                      <td className="px-3 py-2.5 text-right font-mono text-[12px] tabular-nums text-ink-muted">
+                        {scoreStr(n.trust)}
+                      </td>
+                      <td className="px-3 py-2.5 text-right font-mono text-[12px] tabular-nums text-ink-muted">
+                        {scoreStr(n.consensus)}
+                      </td>
+                    </>
+                  )}
                   <td className="px-3 py-2.5 text-center">
                     {n.validator_permit ? (
                       <span className="inline-flex items-center rounded border border-accent/40 bg-accent-surface px-1.5 py-0.5 text-[9.5px] font-mono uppercase tracking-wider text-accent-text">
