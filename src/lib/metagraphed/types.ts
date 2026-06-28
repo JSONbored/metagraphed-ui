@@ -869,7 +869,35 @@ export interface AccountEvent {
   netuid?: number | null;
   uid?: number | null;
   amount_tao?: number | null;
+  alpha_amount?: number | null;
+  extrinsic_index?: number | null;
   observed_at?: string;
+  [key: string]: unknown;
+}
+
+/**
+ * One keyset page of an account's first-party chain events from
+ * /api/v1/accounts/{ss58}/events. `next_cursor` lives in the body (not meta)
+ * and is null at end-of-window.
+ */
+export interface AccountEventsPage {
+  ss58: string;
+  event_count: number;
+  limit?: number | null;
+  offset?: number | null;
+  next_cursor?: string | null;
+  events: AccountEvent[];
+  [key: string]: unknown;
+}
+
+/**
+ * Cross-subnet footprint for one account from /api/v1/accounts/{ss58}/subnets.
+ * Same registration shape as the summary, ordered by netuid ascending.
+ */
+export interface AccountSubnets {
+  ss58: string;
+  subnet_count: number;
+  subnets: AccountRegistration[];
   [key: string]: unknown;
 }
 

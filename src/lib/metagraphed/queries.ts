@@ -30,8 +30,10 @@ import type {
   AccountBalance,
   AccountDay,
   AccountEvent,
+  AccountEventsPage,
   AccountHistory,
   AccountRegistration,
+  AccountSubnets,
   AccountSummary,
   Block,
   ChainActivity,
@@ -1776,6 +1778,8 @@ export function normalizeAccountEvent(raw: unknown): AccountEvent | null {
     netuid: coerceFiniteNumber(raw.netuid) ?? null,
     uid: coerceFiniteNumber(raw.uid) ?? null,
     amount_tao: coerceFiniteNumber(raw.amount_tao) ?? null,
+    alpha_amount: coerceFiniteNumber(raw.alpha_amount) ?? null,
+    extrinsic_index: coerceFiniteNumber(raw.extrinsic_index) ?? null,
     observed_at: accountEventString(raw.observed_at),
   };
 }
@@ -1988,6 +1992,83 @@ export const accountTransfersQuery = (ss58: string, params?: QueryParams) =>
       return { ...res, data } as ApiResult<Transfer[]>;
     },
     staleTime: STALE_SHORT,
+  });
+
+export interface AccountEventsParams extends QueryParams {
+  /** Filter to one event_kind (e.g. "StakeAdded"). */
+  kind?: string;
+  limit?: number;
+  offset?: number;
+}
+
+/**
+ * Paginated first-party chain-event feed for one account (#266). The body
+ * carries event_count + next_cursor (keyset token at end-of-page), so we read
+ * res.data directly rather than via fetchList. Offset pagination mirrors the
+ * sibling account feeds; the optional ?kind filter narrows to one event kind.
+ */
+export const accountEventsQuery = (ss58: string, params: AccountEventsParams = {}) =>
+  queryOptions({
+    queryKey: k(
+      "account-events",
+      ss58,
+      params.kind ?? null,
+      params.limit ?? null,
+      params.offset ?? null,
+    ),
+    queryFn: async ({ signal }) => {
+      const res = await apiFetch<unknown>(`/api/v1/accounts/${ss58PathSegment(ss58)}/events`, {
+        params,
+        signal,
+      });
+      const d = isRecord(res.data) ? res.data : {};
+      const events = normalizeAccountEvents(d.events, params.limit ?? MAX_ACCOUNT_EVENTS);
+      return {
+        data: {
+          ss58: firstString(d.ss58) ?? ss58,
+          event_count: firstFiniteNumber(d.event_count) ?? events.length,
+          limit: firstFiniteNumber(d.limit) ?? null,
+          offset: firstFiniteNumber(d.offset) ?? null,
+          next_cursor: firstString(d.next_cursor) ?? null,
+          events,
+        } as AccountEventsPage,
+        meta: res.meta,
+        url: res.url,
+      } as ApiResult<AccountEventsPage>;
+    },
+    staleTime: STALE_SHORT,
+  });
+
+/**
+ * Cross-subnet footprint for one account from /api/v1/accounts/{ss58}/subnets
+ * (#266) — netuid-ordered registrations, reusing the summary's registration
+ * normalizer. Turns over slowly relative to the event feed, so STALE_MED.
+ */
+export const accountSubnetsQuery = (ss58: string) =>
+  queryOptions({
+    queryKey: k("account-subnets", ss58),
+    queryFn: async ({ signal }) => {
+      const res = await apiFetch<unknown>(`/api/v1/accounts/${ss58PathSegment(ss58)}/subnets`, {
+        signal,
+      });
+      const d = isRecord(res.data) ? res.data : {};
+      const subnets = Array.isArray(d.subnets)
+        ? d.subnets.slice(0, MAX_ACCOUNT_REGISTRATIONS).flatMap((registration) => {
+            const normalized = normalizeAccountRegistration(registration);
+            return normalized ? [normalized] : [];
+          })
+        : [];
+      return {
+        data: {
+          ss58: firstString(d.ss58) ?? ss58,
+          subnet_count: firstFiniteNumber(d.subnet_count) ?? subnets.length,
+          subnets,
+        } as AccountSubnets,
+        meta: res.meta,
+        url: res.url,
+      } as ApiResult<AccountSubnets>;
+    },
+    staleTime: STALE_MED,
   });
 
 // ---- Chain analytics dashboard (#266, epic #1986) -------------------------
