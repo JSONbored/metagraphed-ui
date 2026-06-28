@@ -1293,7 +1293,7 @@ function normalizeAgentCatalogService(raw: unknown): AgentCatalogService | null 
   };
 }
 
-function normalizeAgentCatalogDetail(raw: unknown, netuid: number): AgentCatalogDetail {
+export function normalizeAgentCatalogDetail(raw: unknown, netuid: number): AgentCatalogDetail {
   const base = normalizeAgentCatalogSummary(raw) ?? { netuid };
   const d = isPlainRecord(raw) ? raw : {};
   const services = Array.isArray(d.services)
